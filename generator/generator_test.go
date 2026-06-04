@@ -1,8 +1,8 @@
 package generator
 
 import (
-	"deepcopy-gen/scanner"
-	"deepcopy-gen/types"
+	"github.com/451008604/deepcopy-gen/scanner"
+	"github.com/451008604/deepcopy-gen/types"
 	"go/parser"
 	"go/token"
 	"path/filepath"
@@ -59,7 +59,7 @@ func TestGenerate_SimpleNoHelperImport(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if strings.Contains(code, "deepcopy-gen/deepcopy") {
+	if strings.Contains(code, "github.com/451008604/deepcopy-gen/deepcopy") {
 		t.Error("simple package should not import deepcopy helper")
 	}
 }
@@ -276,7 +276,7 @@ func TestGenerate_HelperImportPresent(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, `dc "deepcopy-gen/deepcopy"`)
+	assertContains(t, code, `dc "github.com/451008604/deepcopy-gen/deepcopy"`)
 }
 
 func TestGenerate_Embedded(t *testing.T) {
@@ -399,7 +399,7 @@ func TestAssemble_WithHelperImport(t *testing.T) {
 	methods := []string{"func foo() {}\n"}
 	result := g.assemble(methods)
 
-	assertContains(t, result, `dc "deepcopy-gen/deepcopy"`)
+	assertContains(t, result, `dc "github.com/451008604/deepcopy-gen/deepcopy"`)
 }
 
 func TestGenDeepCopy_NoFieldsNeedingCopy(t *testing.T) {
@@ -515,8 +515,6 @@ func TestGenerate_Iface_NestedInterface(t *testing.T) {
 	assertContains(t, code, "out.Meta = dc.DeepCopyAny(in.Meta).(map[string]interface{})")
 	assertContains(t, code, "out.Tags = dc.DeepCopyAny(in.Tags).([]interface{})")
 }
-
-
 
 func assertValidGo(t *testing.T, code string) {
 	t.Helper()

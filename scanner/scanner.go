@@ -1,7 +1,7 @@
 package scanner
 
 import (
-	"deepcopy-gen/types"
+	"github.com/451008604/deepcopy-gen/types"
 	"go/ast"
 	"go/parser"
 	"go/token"

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"deepcopy-gen/generator"
-	"deepcopy-gen/scanner"
 	"flag"
 	"fmt"
+	"github.com/451008604/deepcopy-gen/generator"
+	"github.com/451008604/deepcopy-gen/scanner"
 	"io"
 	"os"
 )
