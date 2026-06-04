@@ -36,7 +36,7 @@
 ### 安装
 
 ```bash
-go install deepcopy-gen@latest
+go install github.com/451008604/deepcopy-gen@latest
 ```
 
 ### 用法
@@ -197,7 +197,7 @@ deepcopy-gen/
 ### Installation
 
 ```bash
-go install deepcopy-gen@latest
+go install github.com/451008604/deepcopy-gen@latest
 ```
 
 ### Usage
