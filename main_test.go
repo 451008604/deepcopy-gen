@@ -114,3 +114,36 @@ func TestRun_MultiplePackages(t *testing.T) {
 		}
 	}
 }
+
+func TestRun_NoArgsShowsHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run([]string{}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Usage:") {
+		t.Error("expected stderr to contain 'Usage:'")
+	}
+	if !strings.Contains(stderr.String(), "-no-reflect") {
+		t.Error("expected help to show -no-reflect flag")
+	}
+}
+
+func TestRun_NoReflect(t *testing.T) {
+	dir := filepath.Join("testdata", "iface")
+	var stdout, stderr bytes.Buffer
+	err := run([]string{"-dir", dir, "-dry-run", "-no-reflect"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	out := stdout.String()
+	if strings.Contains(out, "DeepCopyAny") {
+		t.Error("expected no DeepCopyAny calls with -no-reflect")
+	}
+	if strings.Contains(out, "dc \"github.com/451008604/deepcopy-gen/deepcopy\"") {
+		t.Error("expected no deepcopy import with -no-reflect")
+	}
+	if !strings.Contains(out, "*out = *in") {
+		t.Error("expected shallow copy via *out = *in")
+	}
+}

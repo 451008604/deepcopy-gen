@@ -12,11 +12,24 @@ import (
 
 const helperImport = "github.com/451008604/deepcopy-gen/deepcopy"
 
+// Options configures code generation behavior.
+type Options struct {
+	// NoReflect skips interface{} fields that require reflect-based deep copy.
+	// When enabled, interface{} fields are not copied (shallow copy via *out = *in).
+	NoReflect bool
+}
+
 // Generate produces the structinfo.go file content for a given package.
 func Generate(pkg types.PackageInfo) (string, error) {
+	return GenerateWithOptions(pkg, Options{})
+}
+
+// GenerateWithOptions produces the structinfo.go file content with custom options.
+func GenerateWithOptions(pkg types.PackageInfo, opts Options) (string, error) {
 	g := &genState{
-		pkgName: pkg.Name,
-		imports: make(map[string]bool),
+		pkgName:   pkg.Name,
+		imports:   make(map[string]bool),
+		noReflect: opts.NoReflect,
 	}
 
 	var methods []string
@@ -43,6 +56,7 @@ type genState struct {
 	pkgName     string
 	imports     map[string]bool
 	needsHelper bool
+	noReflect   bool
 }
 
 func (g *genState) assemble(methods []string) string {
@@ -143,6 +157,9 @@ func needsDeepCopy(f types.FieldInfo) bool {
 func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
 	if f.IsEmbedded && f.PackageName != "" {
 		g.imports[f.PackageName] = true
+		if g.noReflect {
+			return ""
+		}
 		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	}
 	switch f.Category {
@@ -150,17 +167,26 @@ func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
 		return g.genPointerCopy(dst, src, f)
 	case types.TypeSlice:
 		if f.ElemCategory == types.TypeInterface {
+			if g.noReflect {
+				return ""
+			}
 			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 		}
 		return g.genSliceCopy(dst, src, f)
 	case types.TypeMap:
 		if f.MapValueType.Category == types.TypeInterface {
+			if g.noReflect {
+				return ""
+			}
 			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 		}
 		return g.genMapCopy(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopy(dst, src, f)
 	case types.TypeInterface:
+		if g.noReflect {
+			return ""
+		}
 		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	default:
 		return ""
@@ -170,6 +196,9 @@ func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
 func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, structName string) string {
 	if f.IsEmbedded && f.PackageName != "" {
 		g.imports[f.PackageName] = true
+		if g.noReflect {
+			return ""
+		}
 		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	}
 	switch f.Category {
@@ -193,17 +222,26 @@ func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, struc
 			return b.String()
 		}
 		if f.ElemCategory == types.TypeInterface {
+			if g.noReflect {
+				return ""
+			}
 			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 		}
 		return g.genSliceCopy(dst, src, f)
 	case types.TypeMap:
 		if f.MapValueType != nil && f.MapValueType.Category == types.TypeInterface {
+			if g.noReflect {
+				return ""
+			}
 			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 		}
 		return g.genMapCopy(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopy(dst, src, f)
 	case types.TypeInterface:
+		if g.noReflect {
+			return ""
+		}
 		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	default:
 		return ""
