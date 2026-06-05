@@ -70,6 +70,18 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
 	var structs []types.StructInfo
 
+	importMap := make(map[string]string)
+	for _, imp := range f.Imports {
+		if imp.Name != nil {
+			importMap[imp.Name.Name] = strings.Trim(imp.Path.Value, "\"")
+		} else {
+			parts := strings.Split(strings.Trim(imp.Path.Value, "\""), "/")
+			if len(parts) > 0 {
+				importMap[parts[len(parts)-1]] = strings.Trim(imp.Path.Value, "\"")
+			}
+		}
+	}
+
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.TYPE {
@@ -93,7 +105,7 @@ func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
 
 			if structType.Fields != nil {
 				for _, field := range structType.Fields.List {
-					fi := parseField(field)
+					fi := parseField(field, importMap)
 					si.Fields = append(si.Fields, fi...)
 				}
 			}
@@ -147,10 +159,10 @@ func isSelfRef(f types.FieldInfo, structName string, names map[string]bool) bool
 	return false
 }
 
-func parseField(field *ast.Field) []types.FieldInfo {
+func parseField(field *ast.Field, importMap map[string]string) []types.FieldInfo {
 	if len(field.Names) == 0 {
 		name := embeddedFieldName(field.Type)
-		fi := buildFieldInfo(name, field.Type)
+		fi := buildFieldInfo(name, field.Type, importMap)
 		fi.IsEmbedded = true
 		fi.IsExported = isExportedTypeExpr(field.Type)
 		return []types.FieldInfo{fi}
@@ -158,23 +170,23 @@ func parseField(field *ast.Field) []types.FieldInfo {
 
 	var fields []types.FieldInfo
 	for _, name := range field.Names {
-		fi := buildFieldInfo(name.Name, field.Type)
+		fi := buildFieldInfo(name.Name, field.Type, importMap)
 		fi.IsExported = len(name.Name) > 0 && unicode.IsUpper(rune(name.Name[0]))
 		fields = append(fields, fi)
 	}
 	return fields
 }
 
-func buildFieldInfo(name string, expr ast.Expr) types.FieldInfo {
+func buildFieldInfo(name string, expr ast.Expr, importMap map[string]string) types.FieldInfo {
 	fi := types.FieldInfo{
 		Name:     name,
 		TypeExpr: typeExprString(expr),
 	}
-	resolveType(&fi, expr)
+	resolveType(&fi, expr, importMap)
 	return fi
 }
 
-func resolveType(fi *types.FieldInfo, expr ast.Expr) {
+func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string) {
 	if fi.TypeExpr == "" {
 		fi.TypeExpr = typeExprString(expr)
 	}
@@ -183,7 +195,7 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr) {
 	case *ast.StarExpr:
 		fi.Category = types.TypePointer
 		fi.ElemType = &types.FieldInfo{TypeExpr: typeExprString(t.X)}
-		resolveType(fi.ElemType, t.X)
+		resolveType(fi.ElemType, t.X, importMap)
 		fi.ElemCategory = fi.ElemType.Category
 
 	case *ast.ArrayType:
@@ -200,15 +212,15 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr) {
 			}
 		}
 		fi.ElemType = &types.FieldInfo{TypeExpr: typeExprString(t.Elt)}
-		resolveType(fi.ElemType, t.Elt)
+		resolveType(fi.ElemType, t.Elt, importMap)
 		fi.ElemCategory = fi.ElemType.Category
 
 	case *ast.MapType:
 		fi.Category = types.TypeMap
 		fi.MapKeyType = &types.FieldInfo{TypeExpr: typeExprString(t.Key)}
-		resolveType(fi.MapKeyType, t.Key)
+		resolveType(fi.MapKeyType, t.Key, importMap)
 		fi.MapValueType = &types.FieldInfo{TypeExpr: typeExprString(t.Value)}
-		resolveType(fi.MapValueType, t.Value)
+		resolveType(fi.MapValueType, t.Value, importMap)
 
 	case *ast.StructType:
 		fi.Category = types.TypeStruct
@@ -231,13 +243,16 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr) {
 		fi.Category = types.TypeStruct
 		if pkgIdent, ok := t.X.(*ast.Ident); ok {
 			fi.PackageName = pkgIdent.Name
+			if fullPath, ok := importMap[pkgIdent.Name]; ok {
+				fi.PackageName = fullPath
+			}
 		}
 		fi.TypeName = t.Sel.Name
 
 	case *ast.Ellipsis:
 		fi.Category = types.TypeSlice
 		fi.ElemType = &types.FieldInfo{}
-		resolveType(fi.ElemType, t.Elt)
+		resolveType(fi.ElemType, t.Elt, importMap)
 		fi.ElemCategory = fi.ElemType.Category
 	}
 }

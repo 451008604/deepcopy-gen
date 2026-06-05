@@ -129,6 +129,9 @@ func (g *genState) genDeepCopy(s types.StructInfo) string {
 }
 
 func needsDeepCopy(f types.FieldInfo) bool {
+	if f.IsEmbedded && f.PackageName != "" {
+		return true
+	}
 	switch f.Category {
 	case types.TypePointer, types.TypeSlice, types.TypeMap, types.TypeArray, types.TypeInterface:
 		return true
@@ -138,6 +141,10 @@ func needsDeepCopy(f types.FieldInfo) bool {
 }
 
 func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
+	if f.IsEmbedded && f.PackageName != "" {
+		g.imports[f.PackageName] = true
+		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
+	}
 	switch f.Category {
 	case types.TypePointer:
 		return g.genPointerCopy(dst, src, f)
@@ -161,6 +168,10 @@ func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
 }
 
 func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, structName string) string {
+	if f.IsEmbedded && f.PackageName != "" {
+		g.imports[f.PackageName] = true
+		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
+	}
 	switch f.Category {
 	case types.TypePointer:
 		if f.ElemType != nil && f.ElemType.TypeName == structName {

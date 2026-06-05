@@ -1,0 +1,16 @@
+package external
+
+type AccountInfo struct {
+	ID       int64
+	Username string
+	Email    string
+	Level    int
+	Score    float64
+}
+
+type AccountExtra struct {
+	Avatar   string
+	Bio      string
+	Tags     []string
+	Metadata map[string]string
+}
