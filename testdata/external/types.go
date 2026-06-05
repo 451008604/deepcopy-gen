@@ -14,3 +14,15 @@ type AccountExtra struct {
 	Tags     []string
 	Metadata map[string]string
 }
+
+type GameItem struct {
+	Name     string
+	Count    int
+	Owner    *AccountInfo
+}
+
+type GameState struct {
+	Items      []GameItem
+	Inventory  map[string]*GameItem
+	LastActive *AccountInfo
+}

@@ -109,7 +109,7 @@ func TestScanDir_AllPackages(t *testing.T) {
 	}
 	sort.Strings(pkgNames)
 
-	expected := []string{"complex", "crosspkg", "edgecase", "embedded", "empty", "external", "iface", "multifile", "nested", "selector", "selfref", "simple"}
+	expected := []string{"complex", "crosspkg", "edgecase", "embedded", "empty", "external", "gamecore", "iface", "multifile", "nested", "selector", "selfref", "simple"}
 	if !sliceEqual(pkgNames, expected) {
 		t.Errorf("expected packages %v, got %v", expected, pkgNames)
 	}
