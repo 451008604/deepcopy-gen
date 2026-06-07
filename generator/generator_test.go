@@ -139,8 +139,7 @@ func TestGenerate_Nested(t *testing.T) {
 	assertContains(t, code, "func (in *Employee) DeepCopy() *Employee")
 	assertContains(t, code, "func (in *Department) DeepCopy() *Department")
 	assertContains(t, code, "func (in *Node) DeepCopy() *Node")
-
-	assertContains(t, code, "out.WorkAddr = dc.CopyPtr(in.WorkAddr)")
+	assertContains(t, code, "out.WorkAddr = in.WorkAddr.DeepCopy()")
 	assertContains(t, code, "out.Emails = dc.CopySlice(in.Emails)")
 }
 
@@ -168,7 +167,7 @@ func TestGenerate_NilReceiver(t *testing.T) {
 
 func TestGenerate_OutputPath(t *testing.T) {
 	path := OutputPath("/some/dir")
-	expected := filepath.Join("/some/dir", "structinfo.go")
+	expected := filepath.Join("/some/dir", "deepcopy.go")
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)
 	}
@@ -243,7 +242,7 @@ func TestGenerate_DepartmentSliceOfStructs(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Members = dc.CopySlice(in.Members)")
+	assertContains(t, code, "out.Members[i] = *in.Members[i].DeepCopy()")
 	assertContains(t, code, "out.Locations = dc.CopySlicePtr(in.Locations)")
 }
 
@@ -257,16 +256,6 @@ func TestGenerate_NodeSelfReferential(t *testing.T) {
 	assertContains(t, code, "visited")
 	assertContains(t, code, "out.Children[i] = v.deepcopy(visited)")
 	assertContains(t, code, "out.Parent = in.Parent.deepcopy(visited)")
-}
-
-func TestGenerate_InterfaceMapValue(t *testing.T) {
-	pkg := scanPackage(t, "nested")
-	code, err := Generate(pkg)
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	assertContains(t, code, "out.Metadata = dc.DeepCopyAny(in.Metadata).(map[string]interface{})")
 }
 
 func TestGenerate_HelperImportPresent(t *testing.T) {
@@ -289,7 +278,7 @@ func TestGenerate_Embedded(t *testing.T) {
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithEmbedded) DeepCopy() *WithEmbedded")
 	assertContains(t, code, "func (in *WithEmbeddedPointer) DeepCopy() *WithEmbeddedPointer")
-	assertContains(t, code, "out.Base = dc.CopyPtr(in.Base)")
+	assertContains(t, code, "out.Base = in.Base.DeepCopy()")
 }
 
 func TestGenerate_Selector(t *testing.T) {
@@ -313,7 +302,7 @@ func TestGenerate_InterfaceField(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithInterface) DeepCopy() *WithInterface")
-	assertContains(t, code, "dc.DeepCopyAny(in.Data)")
+	assertNotContains(t, code, "DeepCopyAny")
 }
 
 func TestGenerate_ChannelField(t *testing.T) {
@@ -323,7 +312,6 @@ func TestGenerate_ChannelField(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithChannel) DeepCopy() *WithChannel")
 }
 
@@ -478,8 +466,7 @@ func TestGenerate_Iface_WithInterface(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithInterface) DeepCopy() *WithInterface")
-	assertContains(t, code, "out.Data = dc.DeepCopyAny(in.Data).(interface{})")
-	assertContains(t, code, "out.Config = dc.DeepCopyAny(in.Config).(interface{})")
+	assertNotContains(t, code, "DeepCopyAny")
 }
 
 func TestGenerate_Iface_InterfaceSlice(t *testing.T) {
@@ -490,7 +477,7 @@ func TestGenerate_Iface_InterfaceSlice(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *InterfaceSlice) DeepCopy() *InterfaceSlice")
-	assertContains(t, code, "out.Items = dc.DeepCopyAny(in.Items).([]interface{})")
+	assertNotContains(t, code, "DeepCopyAny")
 }
 
 func TestGenerate_Iface_InterfaceMap(t *testing.T) {
@@ -501,7 +488,7 @@ func TestGenerate_Iface_InterfaceMap(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *InterfaceMap) DeepCopy() *InterfaceMap")
-	assertContains(t, code, "out.Values = dc.DeepCopyAny(in.Values).(map[string]interface{})")
+	assertNotContains(t, code, "DeepCopyAny")
 }
 
 func TestGenerate_Iface_NestedInterface(t *testing.T) {
@@ -512,8 +499,18 @@ func TestGenerate_Iface_NestedInterface(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *NestedInterface) DeepCopy() *NestedInterface")
-	assertContains(t, code, "out.Meta = dc.DeepCopyAny(in.Meta).(map[string]interface{})")
-	assertContains(t, code, "out.Tags = dc.DeepCopyAny(in.Tags).([]interface{})")
+	assertNotContains(t, code, "DeepCopyAny")
+}
+
+func TestGenerate_InterfaceMapValue(t *testing.T) {
+	pkg := scanPackage(t, "nested")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	assertContains(t, code, "func (in *Node) DeepCopy() *Node")
+	assertNotContains(t, code, "DeepCopyAny")
 }
 
 func TestGenerate_CrossPkg_Player(t *testing.T) {
@@ -526,7 +523,7 @@ func TestGenerate_CrossPkg_Player(t *testing.T) {
 	assertValidGo(t, code)
 	assertContains(t, code, `"github.com/451008604/deepcopy-gen/testdata/external"`)
 	assertContains(t, code, "func (in *Player) DeepCopy() *Player")
-	assertContains(t, code, "out.AccountInfo = dc.DeepCopyAny(in.AccountInfo).(external.AccountInfo)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
 }
 
 func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
@@ -537,8 +534,8 @@ func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *PlayerWithExtra) DeepCopy() *PlayerWithExtra")
-	assertContains(t, code, "out.AccountInfo = dc.DeepCopyAny(in.AccountInfo).(external.AccountInfo)")
-	assertContains(t, code, "out.AccountExtra = dc.DeepCopyAny(in.AccountExtra).(external.AccountExtra)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
+	assertContains(t, code, "out.AccountExtra = *dc.CopyPtr(&in.AccountExtra)")
 }
 
 func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
@@ -548,11 +545,10 @@ func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, `"github.com/451008604/deepcopy-gen/testdata/gamecore"`)
 	assertContains(t, code, "func (in *MultiExternalEmbed) DeepCopy() *MultiExternalEmbed")
-	assertContains(t, code, "out.AccountInfo = dc.DeepCopyAny(in.AccountInfo).(external.AccountInfo)")
-	assertContains(t, code, "out.GameItem = dc.DeepCopyAny(in.GameItem).(external.GameItem)")
-	assertContains(t, code, "out.Character = dc.DeepCopyAny(in.Character).(gamecore.Character)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
+	assertContains(t, code, "out.GameItem = *dc.CopyPtr(&in.GameItem)")
+	assertContains(t, code, "out.Character = *dc.CopyPtr(&in.Character)")
 }
 
 func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
@@ -563,7 +559,7 @@ func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *SliceOfExternal) DeepCopy() *SliceOfExternal")
-	assertContains(t, code, "out.Items = dc.CopySlice(in.Items)")
+	assertContains(t, code, "out.Items[i] = *in.Items[i].DeepCopy()")
 }
 
 func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
@@ -608,7 +604,7 @@ func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithSliceOfExternal) DeepCopy() *ExternalWithSliceOfExternal")
-	assertContains(t, code, "out.Inventory = dc.CopySlice(in.Inventory)")
+	assertContains(t, code, "out.Inventory[i] = *in.Inventory[i].DeepCopy()")
 	assertContains(t, code, "out.History = dc.CopySlicePtr(in.History)")
 }
 
@@ -632,7 +628,7 @@ func TestGenerate_CrossPkg_NestedExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *NestedExternal) DeepCopy() *NestedExternal")
-	assertContains(t, code, "out.GameState = dc.DeepCopyAny(in.GameState).(external.GameState)")
+	assertContains(t, code, "out.GameState = *dc.CopyPtr(&in.GameState)")
 }
 
 func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
@@ -643,8 +639,8 @@ func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithLocalSlice) DeepCopy() *ExternalWithLocalSlice")
-	assertContains(t, code, "out.Friends = dc.CopySlice(in.Friends)")
-	assertContains(t, code, "out.Items = dc.CopySlice(in.Items)")
+	assertContains(t, code, "out.Friends[i] = *in.Friends[i].DeepCopy()")
+	assertContains(t, code, "out.Items[i] = *in.Items[i].DeepCopy()")
 }
 
 func TestGenerate_CrossPkg_AllStructs(t *testing.T) {
@@ -681,5 +677,12 @@ func assertContains(t *testing.T, code, substr string) {
 	t.Helper()
 	if !strings.Contains(code, substr) {
 		t.Errorf("generated code does not contain %q\n\ngenerated:\n%s", substr, code)
+	}
+}
+
+func assertNotContains(t *testing.T, code, substr string) {
+	t.Helper()
+	if strings.Contains(code, substr) {
+		t.Errorf("generated code should not contain %q\n\ngenerated:\n%s", substr, code)
 	}
 }

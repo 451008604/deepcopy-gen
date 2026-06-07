@@ -22,16 +22,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 	dir := fs.String("dir", ".", "directory to scan for Go structs")
 	dryRun := fs.Bool("dry-run", false, "print generated code to stdout instead of writing files")
 	verbose := fs.Bool("v", false, "verbose output")
-	noReflect := fs.Bool("no-reflect", false, "skip interface{} fields that require reflect-based deep copy")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage: deepcopy-gen [options]\n\n")
 		fmt.Fprintf(stderr, "A Go code generation tool for generating type-safe deep copy methods.\n\n")
 		fmt.Fprintf(stderr, "Options:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(stderr, "\nExamples:\n")
-		fmt.Fprintf(stderr, "  deepcopy-gen -dir ./models          # Generate structinfo.go files\n")
+		fmt.Fprintf(stderr, "  deepcopy-gen -dir ./models          # Generate deepcopy.go files\n")
 		fmt.Fprintf(stderr, "  deepcopy-gen -dir . -dry-run        # Preview generated code\n")
-		fmt.Fprintf(stderr, "  deepcopy-gen -dir . -no-reflect     # Skip interface{} fields\n")
 		fmt.Fprintf(stderr, "  deepcopy-gen -dir . -v              # Verbose output\n")
 	}
 	if err := fs.Parse(args); err != nil {
@@ -60,10 +58,6 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("scanning: %w", err)
 	}
 
-	opts := generator.Options{
-		NoReflect: *noReflect,
-	}
-
 	totalStructs := 0
 	for _, pkg := range packages {
 		if len(pkg.Structs) == 0 {
@@ -71,7 +65,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 		totalStructs += len(pkg.Structs)
 
-		code, genErr := generator.GenerateWithOptions(pkg, opts)
+		code, genErr := generator.GenerateWithOptions(pkg, generator.Options{})
 		if genErr != nil {
 			return fmt.Errorf("generating for package %s: %w", pkg.Name, genErr)
 		}

@@ -10,9 +10,9 @@
 
 - **Precise AST parsing** — Built on `go/ast`, accurately identifies all struct field types
 - **Generic optimization** — Generated code calls generic functions from the `deepcopy` package, single-line complex copies
-- **Full type coverage** — Supports basic types, pointers, slices, maps, arrays, nested structs, interface{}, channels
+- **Full type coverage** — Supports basic types, pointers, slices, maps, arrays, nested structs, channels
 - **Circular reference support** — Automatically detects self-referential structs, generates visited map to prevent infinite recursion
-- **Cross-package embedding** — Supports deep copy of embedded structs from external packages
+- **Cross-package embedding** — Supports deep copy of embedded structs from external packages, auto-detects `DeepCopy()` methods
 - **Compile-time safety** — Generated code validated by `go/parser`, no runtime reflection
 - **Recursive scanning** — Automatically traverses subdirectories, groups output by package
 
@@ -31,8 +31,10 @@
 | Slice-value map | `map[string][]int` | `dc.CopyMapSlice(in.Field)` |
 | Fixed array | `[3]float64` | Inline per-element copy |
 | Pointer array | `[3]*int` | Inline per-element copy |
-| interface{} | `interface{}` | `dc.DeepCopyAny(in.Field).(Type)` |
-| External embed | `database.AccountInfo` | `dc.DeepCopyAny(in.Field).(Type)` |
+| Struct array | `[3]Struct` | Inline `*in.X[i].DeepCopy()` per element |
+| interface{} | `interface{}` | `*out = *in` (shallow copy) |
+| External embed (ptr) | `*database.AccountInfo` | `dc.CopyPtr(in.Field)` |
+| External embed (value) | `database.AccountInfo` | `*dc.CopyPtr(&in.Field)` |
 | Self-referential | `*Node` (references self) | visited map + recursive copy |
 
 ## Installation
@@ -136,7 +138,7 @@ func (in *TreeNode) deepcopy(visited map[any]any) *TreeNode {
 
 ## Cross-Package Embedding Support
 
-For embedded structs from external packages, the generator automatically imports the external package and generates deep copy code:
+For embedded structs from external packages, the generator automatically uses `dc.CopyPtr` to detect `DeepCopy()` methods at runtime:
 
 ```go
 import (
@@ -149,11 +151,11 @@ type Player struct {
     Nickname string
 }
 
-// Generated code
+// Generated code (external package embedded value type)
 func (in *Player) DeepCopy() *Player {
     out := new(Player)
     *out = *in
-    out.AccountInfo = dc.DeepCopyAny(in.AccountInfo).(database.AccountInfo)
+    out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)
     return out
 }
 ```
@@ -181,7 +183,7 @@ deepcopy-gen/
 │   ├── generator.go         # DeepCopy code generation
 │   └── generator_test.go    # Generator tests
 ├── deepcopy/
-│   ├── helpers.go           # Generic deep copy helper functions + DeepCopyAny
+│   ├── helpers.go           # Generic deep copy helper functions
 │   └── helpers_test.go      # Helper tests
 └── testdata/                # 13 test packages
     ├── simple/              # Basic types

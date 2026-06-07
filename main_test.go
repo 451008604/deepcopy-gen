@@ -38,7 +38,7 @@ func TestRun_Verbose(t *testing.T) {
 	if !strings.Contains(stdout.String(), "wrote") {
 		t.Error("expected verbose output to contain 'wrote'")
 	}
-	os.Remove(filepath.Join(dir, "structinfo.go"))
+	os.Remove(filepath.Join(dir, "deepcopy.go"))
 }
 
 func TestRun_WritesFiles(t *testing.T) {
@@ -51,7 +51,7 @@ func TestRun_WritesFiles(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	outPath := filepath.Join(dir, "structinfo.go")
+	outPath := filepath.Join(dir, "deepcopy.go")
 	data, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatalf("generated file not found: %v", err)
@@ -123,27 +123,5 @@ func TestRun_NoArgsShowsHelp(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Error("expected stderr to contain 'Usage:'")
-	}
-	if !strings.Contains(stderr.String(), "-no-reflect") {
-		t.Error("expected help to show -no-reflect flag")
-	}
-}
-
-func TestRun_NoReflect(t *testing.T) {
-	dir := filepath.Join("testdata", "iface")
-	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", dir, "-dry-run", "-no-reflect"}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("run failed: %v", err)
-	}
-	out := stdout.String()
-	if strings.Contains(out, "DeepCopyAny") {
-		t.Error("expected no DeepCopyAny calls with -no-reflect")
-	}
-	if strings.Contains(out, "dc \"github.com/451008604/deepcopy-gen/deepcopy\"") {
-		t.Error("expected no deepcopy import with -no-reflect")
-	}
-	if !strings.Contains(out, "*out = *in") {
-		t.Error("expected shallow copy via *out = *in")
 	}
 }

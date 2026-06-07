@@ -655,8 +655,8 @@ func TestScanDir_Multifile(t *testing.T) {
 	if pkg.Name != "multifile" {
 		t.Errorf("expected package name 'multifile', got %q", pkg.Name)
 	}
-	if len(pkg.GoFiles) != 2 {
-		t.Errorf("expected 2 Go files, got %d", len(pkg.GoFiles))
+	if len(pkg.GoFiles) != 3 {
+		t.Errorf("expected 3 Go files, got %d", len(pkg.GoFiles))
 	}
 	if len(pkg.Structs) != 2 {
 		t.Errorf("expected 2 structs, got %d", len(pkg.Structs))

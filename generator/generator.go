@@ -12,24 +12,16 @@ import (
 
 const helperImport = "github.com/451008604/deepcopy-gen/deepcopy"
 
-// Options configures code generation behavior.
-type Options struct {
-	// NoReflect skips interface{} fields that require reflect-based deep copy.
-	// When enabled, interface{} fields are not copied (shallow copy via *out = *in).
-	NoReflect bool
-}
+type Options struct{}
 
-// Generate produces the structinfo.go file content for a given package.
 func Generate(pkg types.PackageInfo) (string, error) {
 	return GenerateWithOptions(pkg, Options{})
 }
 
-// GenerateWithOptions produces the structinfo.go file content with custom options.
 func GenerateWithOptions(pkg types.PackageInfo, opts Options) (string, error) {
 	g := &genState{
-		pkgName:   pkg.Name,
-		imports:   make(map[string]bool),
-		noReflect: opts.NoReflect,
+		pkgName: pkg.Name,
+		imports: make(map[string]bool),
 	}
 
 	var methods []string
@@ -40,23 +32,20 @@ func GenerateWithOptions(pkg types.PackageInfo, opts Options) (string, error) {
 	return g.assemble(methods), nil
 }
 
-// ValidateGenerated checks that the generated code is syntactically valid Go.
 func ValidateGenerated(code string) error {
 	fset := token.NewFileSet()
-	_, err := parser.ParseFile(fset, "structinfo.go", code, parser.AllErrors)
+	_, err := parser.ParseFile(fset, "deepcopy.go", code, parser.AllErrors)
 	return err
 }
 
-// OutputPath returns the full path for the structinfo.go file in a package directory.
 func OutputPath(pkgDir string) string {
-	return filepath.Join(pkgDir, "structinfo.go")
+	return filepath.Join(pkgDir, "deepcopy.go")
 }
 
 type genState struct {
 	pkgName     string
 	imports     map[string]bool
 	needsHelper bool
-	noReflect   bool
 }
 
 func (g *genState) assemble(methods []string) string {
@@ -143,11 +132,14 @@ func (g *genState) genDeepCopy(s types.StructInfo) string {
 }
 
 func needsDeepCopy(f types.FieldInfo) bool {
-	if f.IsEmbedded && f.PackageName != "" {
+	if f.IsEmbedded {
+		if f.Category == types.TypeInterface || f.Category == types.TypeBasic {
+			return false
+		}
 		return true
 	}
 	switch f.Category {
-	case types.TypePointer, types.TypeSlice, types.TypeMap, types.TypeArray, types.TypeInterface:
+	case types.TypePointer, types.TypeSlice, types.TypeMap, types.TypeArray, types.TypeStruct:
 		return true
 	default:
 		return false
@@ -155,51 +147,52 @@ func needsDeepCopy(f types.FieldInfo) bool {
 }
 
 func (g *genState) genFieldCopy(dst, src string, f types.FieldInfo) string {
-	if f.IsEmbedded && f.PackageName != "" {
-		g.imports[f.PackageName] = true
-		if g.noReflect {
+	if f.IsEmbedded {
+		if f.Category == types.TypeInterface || f.Category == types.TypeBasic {
 			return ""
 		}
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
+		if f.Category == types.TypePointer {
+			if f.PackageName != "" {
+				g.imports[f.PackageName] = true
+				return fmt.Sprintf("\t%s = dc.CopyPtr(%s)\n", dst, src)
+			}
+			return fmt.Sprintf("\t%s = %s.DeepCopy()\n", dst, src)
+		}
+		if f.PackageName != "" {
+			return fmt.Sprintf("\t%s = *dc.CopyPtr(&%s)\n", dst, src)
+		}
+		return fmt.Sprintf("\t%s = *%s.DeepCopy()\n", dst, src)
 	}
 	switch f.Category {
 	case types.TypePointer:
 		return g.genPointerCopy(dst, src, f)
 	case types.TypeSlice:
-		if f.ElemCategory == types.TypeInterface {
-			if g.noReflect {
-				return ""
-			}
-			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
-		}
 		return g.genSliceCopy(dst, src, f)
 	case types.TypeMap:
-		if f.MapValueType.Category == types.TypeInterface {
-			if g.noReflect {
-				return ""
-			}
-			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
-		}
 		return g.genMapCopy(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopy(dst, src, f)
-	case types.TypeInterface:
-		if g.noReflect {
-			return ""
-		}
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	default:
 		return ""
 	}
 }
 
 func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, structName string) string {
-	if f.IsEmbedded && f.PackageName != "" {
-		g.imports[f.PackageName] = true
-		if g.noReflect {
+	if f.IsEmbedded {
+		if f.Category == types.TypeInterface || f.Category == types.TypeBasic {
 			return ""
 		}
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
+		if f.Category == types.TypePointer {
+			if f.PackageName != "" {
+				g.imports[f.PackageName] = true
+				return fmt.Sprintf("\t%s = dc.CopyPtr(%s)\n", dst, src)
+			}
+			return fmt.Sprintf("\t%s = %s.DeepCopy()\n", dst, src)
+		}
+		if f.PackageName != "" {
+			return fmt.Sprintf("\t%s = *dc.CopyPtr(&%s)\n", dst, src)
+		}
+		return fmt.Sprintf("\t%s = *%s.DeepCopy()\n", dst, src)
 	}
 	switch f.Category {
 	case types.TypePointer:
@@ -221,28 +214,11 @@ func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, struc
 			b.WriteString("\t}\n")
 			return b.String()
 		}
-		if f.ElemCategory == types.TypeInterface {
-			if g.noReflect {
-				return ""
-			}
-			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
-		}
 		return g.genSliceCopy(dst, src, f)
 	case types.TypeMap:
-		if f.MapValueType != nil && f.MapValueType.Category == types.TypeInterface {
-			if g.noReflect {
-				return ""
-			}
-			return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
-		}
 		return g.genMapCopy(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopy(dst, src, f)
-	case types.TypeInterface:
-		if g.noReflect {
-			return ""
-		}
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s).(%s)\n", dst, src, f.TypeExpr)
 	default:
 		return ""
 	}
@@ -252,16 +228,30 @@ func (g *genState) genPointerCopy(dst, src string, f types.FieldInfo) string {
 	if f.ElemType.Category == types.TypePointer {
 		return fmt.Sprintf("\t%s = dc.CopyDoublePtr(%s)\n", dst, src)
 	}
+	if f.ElemType.Category == types.TypeStruct && f.ElemType.PackageName == "" {
+		return fmt.Sprintf("\t%s = %s.DeepCopy()\n", dst, src)
+	}
 	return fmt.Sprintf("\t%s = dc.CopyPtr(%s)\n", dst, src)
 }
 
 func (g *genState) genSliceCopy(dst, src string, f types.FieldInfo) string {
-	if f.ElemCategory == types.TypeInterface {
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s)\n", dst, src)
-	}
 	switch f.ElemCategory {
-	case types.TypeBasic, types.TypeStruct:
+	case types.TypeBasic:
 		return fmt.Sprintf("\t%s = dc.CopySlice(%s)\n", dst, src)
+
+	case types.TypeStruct:
+		typeName := f.ElemType.TypeExpr
+		if f.ElemType.PackageName != "" {
+			g.imports[f.ElemType.PackageName] = true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t%s = make([]%s, len(%s))\n", dst, typeName, src))
+		b.WriteString(fmt.Sprintf("\t\tfor i := range %s {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t\t%s[i] = *%s[i].DeepCopy()\n", dst, src))
+		b.WriteString("\t\t}\n")
+		b.WriteString("\t}\n")
+		return b.String()
 
 	case types.TypePointer:
 		return fmt.Sprintf("\t%s = dc.CopySlicePtr(%s)\n", dst, src)
@@ -282,7 +272,6 @@ func (g *genState) genSliceCopy(dst, src string, f types.FieldInfo) string {
 func (g *genState) genArrayCopy(dst, src string, f types.FieldInfo) string {
 	switch f.ElemCategory {
 	case types.TypeBasic:
-		// *out = *in already copies basic-element arrays correctly.
 		return ""
 
 	case types.TypePointer:
@@ -309,7 +298,14 @@ func (g *genState) genArrayCopy(dst, src string, f types.FieldInfo) string {
 			b.WriteString("\t}\n")
 			return b.String()
 		}
-		return ""
+		if f.ElemType.PackageName != "" {
+			g.imports[f.ElemType.PackageName] = true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("\tfor i := range %s {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t%s[i] = *%s[i].DeepCopy()\n", dst, src))
+		b.WriteString("\t}\n")
+		return b.String()
 
 	default:
 		var b strings.Builder
@@ -322,9 +318,6 @@ func (g *genState) genArrayCopy(dst, src string, f types.FieldInfo) string {
 }
 
 func (g *genState) genMapCopy(dst, src string, f types.FieldInfo) string {
-	if f.MapValueType.Category == types.TypeInterface {
-		return fmt.Sprintf("\t%s = dc.DeepCopyAny(%s)\n", dst, src)
-	}
 	switch f.MapValueType.Category {
 	case types.TypeBasic, types.TypeStruct:
 		return fmt.Sprintf("\t%s = dc.CopyMap(%s)\n", dst, src)

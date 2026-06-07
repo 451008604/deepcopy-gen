@@ -10,9 +10,9 @@
 
 - **AST 精确解析** — 基于 `go/ast` 标准库，准确识别所有 struct 字段类型
 - **泛型优化** — 生成的代码调用 `deepcopy` 包的泛型函数，单行完成复杂拷贝
-- **全类型覆盖** — 支持基本类型、指针、切片、Map、数组、嵌套结构、interface{}、channel
+- **全类型覆盖** — 支持基本类型、指针、切片、Map、数组、嵌套结构、channel
 - **循环引用支持** — 自动检测自引用结构体，生成 visited map 防止无限递归
-- **跨包嵌入** — 支持外部包的嵌入结构体深拷贝
+- **跨包嵌入** — 支持外部包的嵌入结构体深拷贝，自动检测 `DeepCopy()` 方法
 - **编译期安全** — 生成代码通过 `go/parser` 语法校验，无运行时反射
 - **递归子目录** — 自动遍历子目录，按 package 分组输出
 
@@ -31,8 +31,10 @@
 | 切片值 Map | `map[string][]int` | `dc.CopyMapSlice(in.Field)` |
 | 固定数组 | `[3]float64` | 逐元素拷贝 |
 | 指针数组 | `[3]*int` | 逐元素内联拷贝 |
-| interface{} | `interface{}` | `dc.DeepCopyAny(in.Field).(Type)` |
-| 外部包嵌入 | `database.AccountInfo` | `dc.DeepCopyAny(in.Field).(Type)` |
+| 结构体数组 | `[3]Struct` | 逐元素内联 `*in.X[i].DeepCopy()` |
+| interface{} | `interface{}` | `*out = *in`（浅拷贝） |
+| 外部包嵌入指针 | `*database.AccountInfo` | `dc.CopyPtr(in.Field)` |
+| 外部包嵌入值 | `database.AccountInfo` | `*dc.CopyPtr(&in.Field)` |
 | 自引用 | `*Node` (指向自身) | visited map + 递归拷贝 |
 
 ## 安装
@@ -136,7 +138,7 @@ func (in *TreeNode) deepcopy(visited map[any]any) *TreeNode {
 
 ## 跨包嵌入支持
 
-对于外部包的嵌入结构体，生成器会自动导入外部包并生成深拷贝代码：
+对于外部包的嵌入结构体，生成器会自动使用 `dc.CopyPtr` 运行时检测 `DeepCopy()` 方法：
 
 ```go
 import (
@@ -149,11 +151,11 @@ type Player struct {
     Nickname string
 }
 
-// 生成的代码
+// 生成的代码（外部包嵌入值类型）
 func (in *Player) DeepCopy() *Player {
     out := new(Player)
     *out = *in
-    out.AccountInfo = dc.DeepCopyAny(in.AccountInfo).(database.AccountInfo)
+    out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)
     return out
 }
 ```
@@ -181,7 +183,7 @@ deepcopy-gen/
 │   ├── generator.go         # DeepCopy 代码生成
 │   └── generator_test.go    # 生成器测试
 ├── deepcopy/
-│   ├── helpers.go           # 泛型深拷贝辅助函数 + DeepCopyAny
+│   ├── helpers.go           # 泛型深拷贝辅助函数
 │   └── helpers_test.go      # 辅助函数测试
 └── testdata/                # 13 个测试包
     ├── simple/              # 基本类型

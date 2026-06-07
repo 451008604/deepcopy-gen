@@ -118,45 +118,75 @@ func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
 }
 
 func detectSelfReferential(structs []types.StructInfo) {
-	names := make(map[string]bool, len(structs))
-	for _, s := range structs {
-		names[s.Name] = true
+	nameToIdx := make(map[string]int, len(structs))
+	for i, s := range structs {
+		nameToIdx[s.Name] = i
 	}
+
 	for i := range structs {
-		for _, f := range structs[i].Fields {
-			if isSelfRef(f, structs[i].Name, names) {
-				structs[i].IsSelfReferential = true
-				break
-			}
+		if isInCycle(structs, i, nameToIdx) {
+			structs[i].IsSelfReferential = true
 		}
 	}
 }
 
-func isSelfRef(f types.FieldInfo, structName string, names map[string]bool) bool {
-	switch f.Category {
-	case types.TypePointer:
-		if f.ElemType != nil && f.ElemType.TypeName == structName {
-			return true
-		}
-		if f.ElemType != nil {
-			return isSelfRef(*f.ElemType, structName, names)
-		}
-	case types.TypeSlice:
-		if f.ElemType != nil && f.ElemType.TypeName == structName {
-			return true
-		}
-		if f.ElemType != nil {
-			return isSelfRef(*f.ElemType, structName, names)
-		}
-	case types.TypeMap:
-		if f.MapValueType != nil && f.MapValueType.TypeName == structName {
-			return true
-		}
-		if f.MapValueType != nil {
-			return isSelfRef(*f.MapValueType, structName, names)
+// isInCycle checks whether the struct at startIdx is part of a pointer cycle
+// within the same package (e.g. A→B→A or A→A).
+func isInCycle(structs []types.StructInfo, startIdx int, nameToIdx map[string]int) bool {
+	visited := make(map[string]bool)
+	return dfsCheckCycle(structs, startIdx, startIdx, nameToIdx, visited, false)
+}
+
+func dfsCheckCycle(structs []types.StructInfo, currentIdx, startIdx int, nameToIdx map[string]int, visited map[string]bool, started bool) bool {
+	currentName := structs[currentIdx].Name
+
+	if started && currentIdx == startIdx {
+		return true
+	}
+
+	if visited[currentName] {
+		return false
+	}
+	visited[currentName] = true
+	defer delete(visited, currentName)
+
+	for _, f := range structs[currentIdx].Fields {
+		for _, name := range collectPointerTargets(f) {
+			if idx, ok := nameToIdx[name]; ok {
+				if dfsCheckCycle(structs, idx, startIdx, nameToIdx, visited, true) {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+// collectPointerTargets returns all struct names reachable through pointer fields.
+func collectPointerTargets(f types.FieldInfo) []string {
+	var result []string
+	var walk func(fi types.FieldInfo)
+	walk = func(fi types.FieldInfo) {
+		switch fi.Category {
+		case types.TypePointer:
+			if fi.ElemType != nil {
+				if fi.ElemType.Category == types.TypeStruct && fi.ElemType.TypeName != "" {
+					result = append(result, fi.ElemType.TypeName)
+				}
+				walk(*fi.ElemType)
+			}
+		case types.TypeSlice:
+			if fi.ElemType != nil {
+				walk(*fi.ElemType)
+			}
+		case types.TypeMap:
+			if fi.MapValueType != nil {
+				walk(*fi.MapValueType)
+			}
+		}
+	}
+	walk(f)
+	return result
 }
 
 func parseField(field *ast.Field, importMap map[string]string) []types.FieldInfo {
@@ -259,7 +289,7 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 
 func isBuiltinType(name string) bool {
 	switch name {
-	case "bool", "byte", "rune", "error", "string",
+	case "bool", "byte", "rune", "error", "string", "any",
 		"int", "int8", "int16", "int32", "int64",
 		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
 		"float32", "float64",
