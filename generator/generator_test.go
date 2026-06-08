@@ -559,7 +559,7 @@ func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *SliceOfExternal) DeepCopy() *SliceOfExternal")
-	assertContains(t, code, "out.Items[i] = *in.Items[i].DeepCopy()")
+	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(&in.Items[i])")
 }
 
 func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
@@ -604,7 +604,7 @@ func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithSliceOfExternal) DeepCopy() *ExternalWithSliceOfExternal")
-	assertContains(t, code, "out.Inventory[i] = *in.Inventory[i].DeepCopy()")
+	assertContains(t, code, "out.Inventory[i] = *dc.CopyPtr(&in.Inventory[i])")
 	assertContains(t, code, "out.History = dc.CopySlicePtr(in.History)")
 }
 
@@ -640,7 +640,7 @@ func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
 
 	assertContains(t, code, "func (in *ExternalWithLocalSlice) DeepCopy() *ExternalWithLocalSlice")
 	assertContains(t, code, "out.Friends[i] = *in.Friends[i].DeepCopy()")
-	assertContains(t, code, "out.Items[i] = *in.Items[i].DeepCopy()")
+	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(&in.Items[i])")
 }
 
 func TestGenerate_CrossPkg_AllStructs(t *testing.T) {

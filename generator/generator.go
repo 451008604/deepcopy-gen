@@ -243,6 +243,14 @@ func (g *genState) genSliceCopy(dst, src string, f types.FieldInfo) string {
 		typeName := f.ElemType.TypeExpr
 		if f.ElemType.PackageName != "" {
 			g.imports[f.ElemType.PackageName] = true
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t%s = make([]%s, len(%s))\n", dst, typeName, src))
+			b.WriteString(fmt.Sprintf("\t\tfor i := range %s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t%s[i] = *dc.CopyPtr(&%s[i])\n", dst, src))
+			b.WriteString("\t\t}\n")
+			b.WriteString("\t}\n")
+			return b.String()
 		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
@@ -300,6 +308,11 @@ func (g *genState) genArrayCopy(dst, src string, f types.FieldInfo) string {
 		}
 		if f.ElemType.PackageName != "" {
 			g.imports[f.ElemType.PackageName] = true
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("\tfor i := range %s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t%s[i] = *dc.CopyPtr(&%s[i])\n", dst, src))
+			b.WriteString("\t}\n")
+			return b.String()
 		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("\tfor i := range %s {\n", src))

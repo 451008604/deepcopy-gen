@@ -162,7 +162,8 @@ func dfsCheckCycle(structs []types.StructInfo, currentIdx, startIdx int, nameToI
 	return false
 }
 
-// collectPointerTargets returns all struct names reachable through pointer fields.
+// collectPointerTargets returns all struct names reachable through pointer fields
+// within the same package (ignoring external package types).
 func collectPointerTargets(f types.FieldInfo) []string {
 	var result []string
 	var walk func(fi types.FieldInfo)
@@ -170,7 +171,7 @@ func collectPointerTargets(f types.FieldInfo) []string {
 		switch fi.Category {
 		case types.TypePointer:
 			if fi.ElemType != nil {
-				if fi.ElemType.Category == types.TypeStruct && fi.ElemType.TypeName != "" {
+				if fi.ElemType.Category == types.TypeStruct && fi.ElemType.TypeName != "" && fi.ElemType.PackageName == "" {
 					result = append(result, fi.ElemType.TypeName)
 				}
 				walk(*fi.ElemType)
