@@ -1,40 +1,36 @@
 package deepcopy
 
-import (
-	"sync"
-)
+type Visited = map[any]any
 
-var copyCycle sync.Map
+func NewVisited() Visited {
+	return make(Visited)
+}
 
-func CopyPtr[T any](p *T) *T {
+func CopyPtr[T any](v Visited, p *T) *T {
 	if p == nil {
 		return nil
 	}
 
-	addr := any(p)
-	if existing, ok := copyCycle.Load(addr); ok {
-		return existing.(*T)
+	if out, ok := v[p]; ok {
+		return out.(*T)
 	}
 
-	if copier, ok := any(p).(interface{ DeepCopy() *T }); ok {
-		out := new(T)
-		copyCycle.Store(addr, out)
-		defer copyCycle.Delete(addr)
-		*out = *copier.DeepCopy()
-		return out
+	if copier, ok := any(p).(interface{ deepcopy(Visited) *T }); ok {
+		return copier.deepcopy(v)
 	}
+
 	out := new(T)
 	*out = *p
 	return out
 }
 
-func CopyDoublePtr[T any](p **T) **T {
+func CopyDoublePtr[T any](v Visited, p **T) **T {
 	if p == nil {
 		return nil
 	}
 	out := new(*T)
 	if *p != nil {
-		*out = CopyPtr(*p)
+		*out = CopyPtr(v, *p)
 	}
 	return out
 }
@@ -48,32 +44,32 @@ func CopySlice[T any](s []T) []T {
 	return out
 }
 
-func CopySlicePtr[T any](s []*T) []*T {
+func CopySlicePtr[T any](v Visited, s []*T) []*T {
 	if s == nil {
 		return nil
 	}
 	out := make([]*T, len(s))
-	for i, v := range s {
-		if v != nil {
-			out[i] = CopyPtr(v)
+	for i, p := range s {
+		if p != nil {
+			out[i] = CopyPtr(v, p)
 		}
 	}
 	return out
 }
 
-func CopySliceSlice[T any](s [][]T) [][]T {
+func CopySliceSlice[T any](v Visited, s [][]T) [][]T {
 	if s == nil {
 		return nil
 	}
 	out := make([][]T, len(s))
-	for i, v := range s {
-		if v != nil {
-			out[i] = make([]T, len(v))
-			for j, elem := range v {
-				if copier, ok := any(elem).(interface{ DeepCopy() *T }); ok {
-					out[i][j] = *copier.DeepCopy()
+	for i, elem := range s {
+		if elem != nil {
+			out[i] = make([]T, len(elem))
+			for j, val := range elem {
+				if copier, ok := any(val).(interface{ deepcopy(Visited) *T }); ok {
+					out[i][j] = *copier.deepcopy(v)
 				} else {
-					out[i][j] = elem
+					out[i][j] = val
 				}
 			}
 		}
@@ -81,19 +77,19 @@ func CopySliceSlice[T any](s [][]T) [][]T {
 	return out
 }
 
-func CopySliceMap[K comparable, V any](s []map[K]V) []map[K]V {
+func CopySliceMap[K comparable, V any](v Visited, s []map[K]V) []map[K]V {
 	if s == nil {
 		return nil
 	}
 	out := make([]map[K]V, len(s))
-	for i, v := range s {
-		if v != nil {
-			out[i] = make(map[K]V, len(v))
-			for mk, mv := range v {
-				if copier, ok := any(mv).(interface{ DeepCopy() *V }); ok {
-					out[i][mk] = *copier.DeepCopy()
+	for i, m := range s {
+		if m != nil {
+			out[i] = make(map[K]V, len(m))
+			for k, val := range m {
+				if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
+					out[i][k] = *copier.deepcopy(v)
 				} else {
-					out[i][mk] = mv
+					out[i][k] = val
 				}
 			}
 		}
@@ -101,49 +97,47 @@ func CopySliceMap[K comparable, V any](s []map[K]V) []map[K]V {
 	return out
 }
 
-func CopyMap[K comparable, V any](m map[K]V) map[K]V {
+func CopyMap[K comparable, V any](v Visited, m map[K]V) map[K]V {
 	if m == nil {
 		return nil
 	}
 	out := make(map[K]V, len(m))
-	for k, v := range m {
-		if copier, ok := any(v).(interface{ DeepCopy() *V }); ok {
-			out[k] = *copier.DeepCopy()
+	for k, val := range m {
+		if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
+			out[k] = *copier.deepcopy(v)
 		} else {
-			out[k] = v
+			out[k] = val
 		}
 	}
 	return out
 }
 
-func CopyMapPtr[K comparable, V any](m map[K]*V) map[K]*V {
+func CopyMapPtr[K comparable, V any](v Visited, m map[K]*V) map[K]*V {
 	if m == nil {
 		return nil
 	}
 	out := make(map[K]*V, len(m))
-	for k, v := range m {
-		if v != nil {
-			out[k] = CopyPtr(v)
-		} else {
-			out[k] = nil
+	for k, p := range m {
+		if p != nil {
+			out[k] = CopyPtr(v, p)
 		}
 	}
 	return out
 }
 
-func CopyMapSlice[K comparable, V any](m map[K][]V) map[K][]V {
+func CopyMapSlice[K comparable, V any](v Visited, m map[K][]V) map[K][]V {
 	if m == nil {
 		return nil
 	}
 	out := make(map[K][]V, len(m))
-	for k, v := range m {
-		if v != nil {
-			out[k] = make([]V, len(v))
-			for i, elem := range v {
-				if copier, ok := any(elem).(interface{ DeepCopy() *V }); ok {
-					out[k][i] = *copier.DeepCopy()
+	for k, s := range m {
+		if s != nil {
+			out[k] = make([]V, len(s))
+			for i, val := range s {
+				if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
+					out[k][i] = *copier.deepcopy(v)
 				} else {
-					out[k][i] = elem
+					out[k][i] = val
 				}
 			}
 		} else {

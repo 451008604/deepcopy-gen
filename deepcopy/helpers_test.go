@@ -6,39 +6,41 @@ import (
 )
 
 func TestCopyPtr(t *testing.T) {
-	if CopyPtr[int](nil) != nil {
+	v := NewVisited()
+	if CopyPtr[int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
-	v := 42
-	cp := CopyPtr(&v)
+	p := 42
+	cp := CopyPtr(v, &p)
 	if *cp != 42 {
 		t.Fatalf("expected 42, got %d", *cp)
 	}
 	*cp = 99
-	if v != 42 {
+	if p != 42 {
 		t.Fatal("mutation leaked to original")
 	}
 }
 
 func TestCopyDoublePtr(t *testing.T) {
-	if CopyDoublePtr[int](nil) != nil {
+	v := NewVisited()
+	if CopyDoublePtr[int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
-	v := 42
-	p := &v
+	val := 42
+	p := &val
 	pp := &p
-	cp := CopyDoublePtr(pp)
+	cp := CopyDoublePtr(v, pp)
 	if **cp != 42 {
 		t.Fatalf("expected 42, got %d", **cp)
 	}
 	**cp = 99
-	if v != 42 {
+	if val != 42 {
 		t.Fatal("mutation leaked to original")
 	}
 
 	var nilP *int
 	pp2 := &nilP
-	cp2 := CopyDoublePtr(pp2)
+	cp2 := CopyDoublePtr(v, pp2)
 	if *cp2 != nil {
 		t.Fatal("inner nil should stay nil")
 	}
@@ -68,12 +70,13 @@ func TestCopySlice_Empty(t *testing.T) {
 }
 
 func TestCopySlicePtr(t *testing.T) {
-	if CopySlicePtr[int](nil) != nil {
+	v := NewVisited()
+	if CopySlicePtr[int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	a, b := 1, 2
 	orig := []*int{&a, nil, &b}
-	cp := CopySlicePtr(orig)
+	cp := CopySlicePtr(v, orig)
 	if len(cp) != 3 {
 		t.Fatalf("expected len 3, got %d", len(cp))
 	}
@@ -90,11 +93,12 @@ func TestCopySlicePtr(t *testing.T) {
 }
 
 func TestCopySliceSlice(t *testing.T) {
-	if CopySliceSlice[int](nil) != nil {
+	v := NewVisited()
+	if CopySliceSlice[int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	orig := [][]int{{1, 2}, nil, {3, 4}}
-	cp := CopySliceSlice(orig)
+	cp := CopySliceSlice(v, orig)
 	if !reflect.DeepEqual(orig, cp) {
 		t.Fatal("copy does not match original")
 	}
@@ -108,11 +112,12 @@ func TestCopySliceSlice(t *testing.T) {
 }
 
 func TestCopySliceMap(t *testing.T) {
-	if CopySliceMap[string, int](nil) != nil {
+	v := NewVisited()
+	if CopySliceMap[string, int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	orig := []map[string]int{{"a": 1}, nil, {"b": 2}}
-	cp := CopySliceMap(orig)
+	cp := CopySliceMap(v, orig)
 	if !reflect.DeepEqual(orig, cp) {
 		t.Fatal("copy does not match original")
 	}
@@ -123,11 +128,12 @@ func TestCopySliceMap(t *testing.T) {
 }
 
 func TestCopyMap(t *testing.T) {
-	if CopyMap[string, int](nil) != nil {
+	v := NewVisited()
+	if CopyMap[string, int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	orig := map[string]int{"a": 1, "b": 2}
-	cp := CopyMap(orig)
+	cp := CopyMap(v, orig)
 	if !reflect.DeepEqual(orig, cp) {
 		t.Fatal("copy does not match original")
 	}
@@ -138,12 +144,13 @@ func TestCopyMap(t *testing.T) {
 }
 
 func TestCopyMapPtr(t *testing.T) {
-	if CopyMapPtr[string, bool](nil) != nil {
+	v := NewVisited()
+	if CopyMapPtr[string, bool](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	a, b := true, false
 	orig := map[string]*bool{"x": &a, "y": &b, "z": nil}
-	cp := CopyMapPtr(orig)
+	cp := CopyMapPtr(v, orig)
 	if *cp["x"] != true || *cp["y"] != false || cp["z"] != nil {
 		t.Fatal("values mismatch")
 	}
@@ -154,13 +161,14 @@ func TestCopyMapPtr(t *testing.T) {
 }
 
 func TestCopyMapSlice(t *testing.T) {
-	if CopyMapSlice[string, int](nil) != nil {
+	v := NewVisited()
+	if CopyMapSlice[string, int](v, nil) != nil {
 		t.Fatal("nil input should return nil")
 	}
 	orig := map[string][]int{"a": {1, 2}, "b": nil}
-	cp := CopyMapSlice(orig)
+	cp := CopyMapSlice(v, orig)
 	if !reflect.DeepEqual(orig, cp) {
-		t.Fatal("copy does not match original")
+		t.Fatalf("copy does not match original\norig: %v\ncp:   %v", orig, cp)
 	}
 	cp["a"][0] = 99
 	if orig["a"][0] == 99 {
@@ -181,23 +189,31 @@ type cycleB struct {
 	A     *cycleA
 }
 
-func (a *cycleA) DeepCopy() *cycleA {
+func (a *cycleA) deepcopy(v Visited) *cycleA {
 	if a == nil {
 		return nil
 	}
+	if out, ok := v[a]; ok {
+		return out.(*cycleA)
+	}
 	out := new(cycleA)
+	v[a] = out
 	*out = *a
-	out.B = CopyPtr(a.B)
+	out.B = CopyPtr(v, a.B)
 	return out
 }
 
-func (b *cycleB) DeepCopy() *cycleB {
+func (b *cycleB) deepcopy(v Visited) *cycleB {
 	if b == nil {
 		return nil
 	}
+	if out, ok := v[b]; ok {
+		return out.(*cycleB)
+	}
 	out := new(cycleB)
+	v[b] = out
 	*out = *b
-	out.A = CopyPtr(b.A)
+	out.A = CopyPtr(v, b.A)
 	return out
 }
 
@@ -207,7 +223,8 @@ func TestCopyPtr_CrossPackageCycle(t *testing.T) {
 	a.B = b
 	b.A = a
 
-	cp := CopyPtr(a)
+	v := NewVisited()
+	cp := CopyPtr(v, a)
 	if cp == nil {
 		t.Fatal("copy should not be nil")
 	}
@@ -238,23 +255,31 @@ type cycleSliceB struct {
 	As    []*cycleSliceA
 }
 
-func (a *cycleSliceA) DeepCopy() *cycleSliceA {
+func (a *cycleSliceA) deepcopy(v Visited) *cycleSliceA {
 	if a == nil {
 		return nil
 	}
+	if out, ok := v[a]; ok {
+		return out.(*cycleSliceA)
+	}
 	out := new(cycleSliceA)
+	v[a] = out
 	*out = *a
-	out.Bs = CopySlicePtr(a.Bs)
+	out.Bs = CopySlicePtr(v, a.Bs)
 	return out
 }
 
-func (b *cycleSliceB) DeepCopy() *cycleSliceB {
+func (b *cycleSliceB) deepcopy(v Visited) *cycleSliceB {
 	if b == nil {
 		return nil
 	}
+	if out, ok := v[b]; ok {
+		return out.(*cycleSliceB)
+	}
 	out := new(cycleSliceB)
+	v[b] = out
 	*out = *b
-	out.As = CopySlicePtr(b.As)
+	out.As = CopySlicePtr(v, b.As)
 	return out
 }
 
@@ -264,7 +289,8 @@ func TestCopySlicePtr_CrossPackageCycle(t *testing.T) {
 	a.Bs = []*cycleSliceB{b}
 	b.As = []*cycleSliceA{a}
 
-	cp := CopyPtr(a)
+	v := NewVisited()
+	cp := CopyPtr(v, a)
 	if cp == nil {
 		t.Fatal("copy should not be nil")
 	}

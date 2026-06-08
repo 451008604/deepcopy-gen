@@ -59,9 +59,7 @@ func TestGenerate_SimpleNoHelperImport(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if strings.Contains(code, "github.com/451008604/deepcopy-gen/deepcopy") {
-		t.Error("simple package should not import deepcopy helper")
-	}
+	assertContains(t, code, `dc "github.com/451008604/deepcopy-gen/deepcopy"`)
 }
 
 func TestGenerate_Complex_PointerFields(t *testing.T) {
@@ -73,10 +71,10 @@ func TestGenerate_Complex_PointerFields(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithPointer) DeepCopy() *WithPointer")
-	assertContains(t, code, "out.Name = dc.CopyPtr(in.Name)")
-	assertContains(t, code, "out.Value = dc.CopyPtr(in.Value)")
-	assertContains(t, code, "out.Data = dc.CopyPtr(in.Data)")
-	assertContains(t, code, "out.Ref = dc.CopyDoublePtr(in.Ref)")
+	assertContains(t, code, "out.Name = dc.CopyPtr(v, in.Name)")
+	assertContains(t, code, "out.Value = dc.CopyPtr(v, in.Value)")
+	assertContains(t, code, "out.Data = dc.CopyPtr(v, in.Data)")
+	assertContains(t, code, "out.Ref = dc.CopyDoublePtr(v, in.Ref)")
 }
 
 func TestGenerate_Complex_SliceFields(t *testing.T) {
@@ -90,8 +88,8 @@ func TestGenerate_Complex_SliceFields(t *testing.T) {
 	assertContains(t, code, "func (in *WithSlice) DeepCopy() *WithSlice")
 	assertContains(t, code, "out.Names = dc.CopySlice(in.Names)")
 	assertContains(t, code, "out.Numbers = dc.CopySlice(in.Numbers)")
-	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(in.Matrix)")
-	assertContains(t, code, "out.Ptrs = dc.CopySlicePtr(in.Ptrs)")
+	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(v, in.Matrix)")
+	assertContains(t, code, "out.Ptrs = dc.CopySlicePtr(v, in.Ptrs)")
 }
 
 func TestGenerate_Complex_MapFields(t *testing.T) {
@@ -103,9 +101,9 @@ func TestGenerate_Complex_MapFields(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithMap) DeepCopy() *WithMap")
-	assertContains(t, code, "out.Labels = dc.CopyMap(in.Labels)")
-	assertContains(t, code, "out.Scores = dc.CopyMap(in.Scores)")
-	assertContains(t, code, "out.IntKeyMap = dc.CopyMap(in.IntKeyMap)")
+	assertContains(t, code, "out.Labels = dc.CopyMap(v, in.Labels)")
+	assertContains(t, code, "out.Scores = dc.CopyMap(v, in.Scores)")
+	assertContains(t, code, "out.IntKeyMap = dc.CopyMap(v, in.IntKeyMap)")
 }
 
 func TestGenerate_Complex_MapWithPointerValues(t *testing.T) {
@@ -115,7 +113,7 @@ func TestGenerate_Complex_MapWithPointerValues(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.PtrMap = dc.CopyMapPtr(in.PtrMap)")
+	assertContains(t, code, "out.PtrMap = dc.CopyMapPtr(v, in.PtrMap)")
 }
 
 func TestGenerate_Complex_MapWithSliceValues(t *testing.T) {
@@ -125,7 +123,7 @@ func TestGenerate_Complex_MapWithSliceValues(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Nested = dc.CopyMapSlice(in.Nested)")
+	assertContains(t, code, "out.Nested = dc.CopyMapSlice(v, in.Nested)")
 }
 
 func TestGenerate_Nested(t *testing.T) {
@@ -139,7 +137,7 @@ func TestGenerate_Nested(t *testing.T) {
 	assertContains(t, code, "func (in *Employee) DeepCopy() *Employee")
 	assertContains(t, code, "func (in *Department) DeepCopy() *Department")
 	assertContains(t, code, "func (in *Node) DeepCopy() *Node")
-	assertContains(t, code, "out.WorkAddr = in.WorkAddr.DeepCopy()")
+	assertContains(t, code, "out.WorkAddr = in.WorkAddr.deepcopy(v)")
 	assertContains(t, code, "out.Emails = dc.CopySlice(in.Emails)")
 }
 
@@ -207,7 +205,7 @@ func TestGenerate_SliceOfPointers(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Ptrs = dc.CopySlicePtr(in.Ptrs)")
+	assertContains(t, code, "out.Ptrs = dc.CopySlicePtr(v, in.Ptrs)")
 }
 
 func TestGenerate_SliceOfSlices(t *testing.T) {
@@ -217,7 +215,7 @@ func TestGenerate_SliceOfSlices(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(in.Matrix)")
+	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(v, in.Matrix)")
 }
 
 func TestGenerate_MixedStruct(t *testing.T) {
@@ -229,10 +227,10 @@ func TestGenerate_MixedStruct(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *Mixed) DeepCopy() *Mixed")
-	assertContains(t, code, "out.Name = dc.CopyPtr(in.Name)")
+	assertContains(t, code, "out.Name = dc.CopyPtr(v, in.Name)")
 	assertContains(t, code, "out.Tags = dc.CopySlice(in.Tags)")
-	assertContains(t, code, "out.Metadata = dc.CopyMap(in.Metadata)")
-	assertContains(t, code, "out.Scores = dc.CopySlicePtr(in.Scores)")
+	assertContains(t, code, "out.Metadata = dc.CopyMap(v, in.Metadata)")
+	assertContains(t, code, "out.Scores = dc.CopySlicePtr(v, in.Scores)")
 }
 
 func TestGenerate_DepartmentSliceOfStructs(t *testing.T) {
@@ -242,8 +240,8 @@ func TestGenerate_DepartmentSliceOfStructs(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Members[i] = *in.Members[i].DeepCopy()")
-	assertContains(t, code, "out.Locations = dc.CopySlicePtr(in.Locations)")
+	assertContains(t, code, "out.Members[i] = *in.Members[i].deepcopy(v)")
+	assertContains(t, code, "out.Locations = dc.CopySlicePtr(v, in.Locations)")
 }
 
 func TestGenerate_NodeSelfReferential(t *testing.T) {
@@ -253,9 +251,8 @@ func TestGenerate_NodeSelfReferential(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "visited")
-	assertContains(t, code, "out.Children[i] = v.deepcopy(visited)")
-	assertContains(t, code, "out.Parent = in.Parent.deepcopy(visited)")
+	assertContains(t, code, "out.Children = dc.CopySlicePtr(v, in.Children)")
+	assertContains(t, code, "out.Parent = in.Parent.deepcopy(v)")
 }
 
 func TestGenerate_HelperImportPresent(t *testing.T) {
@@ -278,7 +275,7 @@ func TestGenerate_Embedded(t *testing.T) {
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithEmbedded) DeepCopy() *WithEmbedded")
 	assertContains(t, code, "func (in *WithEmbeddedPointer) DeepCopy() *WithEmbeddedPointer")
-	assertContains(t, code, "out.Base = in.Base.DeepCopy()")
+	assertContains(t, code, "out.Base = in.Base.deepcopy(v)")
 }
 
 func TestGenerate_Selector(t *testing.T) {
@@ -290,7 +287,7 @@ func TestGenerate_Selector(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *Event) DeepCopy() *Event")
-	assertContains(t, code, "out.UpdatedAt = dc.CopyPtr(in.UpdatedAt)")
+	assertContains(t, code, "out.UpdatedAt = dc.CopyPtr(v, in.UpdatedAt)")
 }
 
 func TestGenerate_InterfaceField(t *testing.T) {
@@ -339,7 +336,7 @@ func TestGenerate_SliceOfMaps(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *SliceOfMaps) DeepCopy() *SliceOfMaps")
-	assertContains(t, code, "out.Maps = dc.CopySliceMap[string, int](in.Maps)")
+	assertContains(t, code, "out.Maps = dc.CopySliceMap[string, int](v, in.Maps)")
 }
 
 func TestGenerate_MultiNameFields(t *testing.T) {
@@ -430,10 +427,9 @@ func TestGenerate_SelfRef_TreeNode(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *TreeNode) DeepCopy() *TreeNode")
-	assertContains(t, code, "visited")
-	assertContains(t, code, "func (in *TreeNode) deepcopy(visited map[any]any) *TreeNode")
-	assertContains(t, code, "out.Children[i] = v.deepcopy(visited)")
-	assertContains(t, code, "out.Parent = in.Parent.deepcopy(visited)")
+	assertContains(t, code, "func (in *TreeNode) deepcopy(v dc.Visited) *TreeNode")
+	assertContains(t, code, "out.Children = dc.CopySlicePtr(v, in.Children)")
+	assertContains(t, code, "out.Parent = in.Parent.deepcopy(v)")
 }
 
 func TestGenerate_SelfRef_LinkedNode(t *testing.T) {
@@ -443,8 +439,8 @@ func TestGenerate_SelfRef_LinkedNode(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "func (in *LinkedNode) deepcopy(visited map[any]any) *LinkedNode")
-	assertContains(t, code, "out.Next = in.Next.deepcopy(visited)")
+	assertContains(t, code, "func (in *LinkedNode) deepcopy(v dc.Visited) *LinkedNode")
+	assertContains(t, code, "out.Next = in.Next.deepcopy(v)")
 }
 
 func TestGenerate_SelfRef_TreeWithMap(t *testing.T) {
@@ -454,7 +450,7 @@ func TestGenerate_SelfRef_TreeWithMap(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "func (in *TreeWithMap) deepcopy(visited map[any]any) *TreeWithMap")
+	assertContains(t, code, "func (in *TreeWithMap) deepcopy(v dc.Visited) *TreeWithMap")
 }
 
 func TestGenerate_Iface_WithInterface(t *testing.T) {
@@ -523,7 +519,7 @@ func TestGenerate_CrossPkg_Player(t *testing.T) {
 	assertValidGo(t, code)
 	assertContains(t, code, `"github.com/451008604/deepcopy-gen/testdata/external"`)
 	assertContains(t, code, "func (in *Player) DeepCopy() *Player")
-	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(v, &in.AccountInfo)")
 }
 
 func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
@@ -534,8 +530,8 @@ func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *PlayerWithExtra) DeepCopy() *PlayerWithExtra")
-	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
-	assertContains(t, code, "out.AccountExtra = *dc.CopyPtr(&in.AccountExtra)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(v, &in.AccountInfo)")
+	assertContains(t, code, "out.AccountExtra = *dc.CopyPtr(v, &in.AccountExtra)")
 }
 
 func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
@@ -546,9 +542,9 @@ func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *MultiExternalEmbed) DeepCopy() *MultiExternalEmbed")
-	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)")
-	assertContains(t, code, "out.GameItem = *dc.CopyPtr(&in.GameItem)")
-	assertContains(t, code, "out.Character = *dc.CopyPtr(&in.Character)")
+	assertContains(t, code, "out.AccountInfo = *dc.CopyPtr(v, &in.AccountInfo)")
+	assertContains(t, code, "out.GameItem = *dc.CopyPtr(v, &in.GameItem)")
+	assertContains(t, code, "out.Character = *dc.CopyPtr(v, &in.Character)")
 }
 
 func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
@@ -559,7 +555,7 @@ func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *SliceOfExternal) DeepCopy() *SliceOfExternal")
-	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(&in.Items[i])")
+	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(v, &in.Items[i])")
 }
 
 func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
@@ -570,7 +566,7 @@ func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *SliceOfExternalPtr) DeepCopy() *SliceOfExternalPtr")
-	assertContains(t, code, "out.Items = dc.CopySlicePtr(in.Items)")
+	assertContains(t, code, "out.Items = dc.CopySlicePtr(v, in.Items)")
 }
 
 func TestGenerate_CrossPkg_MapOfExternal(t *testing.T) {
@@ -581,7 +577,7 @@ func TestGenerate_CrossPkg_MapOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *MapOfExternal) DeepCopy() *MapOfExternal")
-	assertContains(t, code, "out.Items = dc.CopyMapPtr(in.Items)")
+	assertContains(t, code, "out.Items = dc.CopyMapPtr(v, in.Items)")
 }
 
 func TestGenerate_CrossPkg_ExternalWithPointerToExternal(t *testing.T) {
@@ -592,8 +588,8 @@ func TestGenerate_CrossPkg_ExternalWithPointerToExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithPointerToExternal) DeepCopy() *ExternalWithPointerToExternal")
-	assertContains(t, code, "out.Owner = dc.CopyPtr(in.Owner)")
-	assertContains(t, code, "out.Items = dc.CopySlicePtr(in.Items)")
+	assertContains(t, code, "out.Owner = dc.CopyPtr(v, in.Owner)")
+	assertContains(t, code, "out.Items = dc.CopySlicePtr(v, in.Items)")
 }
 
 func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
@@ -604,8 +600,8 @@ func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithSliceOfExternal) DeepCopy() *ExternalWithSliceOfExternal")
-	assertContains(t, code, "out.Inventory[i] = *dc.CopyPtr(&in.Inventory[i])")
-	assertContains(t, code, "out.History = dc.CopySlicePtr(in.History)")
+	assertContains(t, code, "out.Inventory[i] = *dc.CopyPtr(v, &in.Inventory[i])")
+	assertContains(t, code, "out.History = dc.CopySlicePtr(v, in.History)")
 }
 
 func TestGenerate_CrossPkg_ExternalWithMapOfExternal(t *testing.T) {
@@ -616,8 +612,8 @@ func TestGenerate_CrossPkg_ExternalWithMapOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithMapOfExternal) DeepCopy() *ExternalWithMapOfExternal")
-	assertContains(t, code, "out.Inventory = dc.CopyMap(in.Inventory)")
-	assertContains(t, code, "out.LastActive = dc.CopyMapPtr(in.LastActive)")
+	assertContains(t, code, "out.Inventory = dc.CopyMap(v, in.Inventory)")
+	assertContains(t, code, "out.LastActive = dc.CopyMapPtr(v, in.LastActive)")
 }
 
 func TestGenerate_CrossPkg_NestedExternal(t *testing.T) {
@@ -628,7 +624,7 @@ func TestGenerate_CrossPkg_NestedExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *NestedExternal) DeepCopy() *NestedExternal")
-	assertContains(t, code, "out.GameState = *dc.CopyPtr(&in.GameState)")
+	assertContains(t, code, "out.GameState = *dc.CopyPtr(v, &in.GameState)")
 }
 
 func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
@@ -639,8 +635,8 @@ func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithLocalSlice) DeepCopy() *ExternalWithLocalSlice")
-	assertContains(t, code, "out.Friends[i] = *in.Friends[i].DeepCopy()")
-	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(&in.Items[i])")
+	assertContains(t, code, "out.Friends[i] = *in.Friends[i].deepcopy(v)")
+	assertContains(t, code, "out.Items[i] = *dc.CopyPtr(v, &in.Items[i])")
 }
 
 func TestGenerate_CrossPkg_AllStructs(t *testing.T) {
