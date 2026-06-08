@@ -21,21 +21,21 @@
 | Type | Example | Generated Code |
 |---|---|---|
 | Basic | `int`, `string`, `bool` | `*out = *in` (value copy) |
-| Pointer | `*string`, `*int` | `dc.CopyPtr(in.Field)` |
-| Double pointer | `**float64` | `dc.CopyDoublePtr(in.Field)` |
+| Pointer | `*string`, `*int` | `dc.CopyPtr(v, in.Field)` |
+| Double pointer | `**float64` | `dc.CopyDoublePtr(v, in.Field)` |
 | Slice | `[]string` | `dc.CopySlice(in.Field)` |
-| Pointer slice | `[]*int` | `dc.CopySlicePtr(in.Field)` |
-| Nested slice | `[][]float64` | `dc.CopySliceSlice(in.Field)` |
-| Map | `map[string]string` | `dc.CopyMap(in.Field)` |
-| Pointer-value map | `map[string]*bool` | `dc.CopyMapPtr(in.Field)` |
-| Slice-value map | `map[string][]int` | `dc.CopyMapSlice(in.Field)` |
+| Pointer slice | `[]*int` | `dc.CopySlicePtr(v, in.Field)` |
+| Nested slice | `[][]float64` | `dc.CopySliceSlice(v, in.Field)` |
+| Map | `map[string]string` | `dc.CopyMap(v, in.Field)` |
+| Pointer-value map | `map[string]*bool` | `dc.CopyMapPtr(v, in.Field)` |
+| Slice-value map | `map[string][]int` | `dc.CopyMapSlice(v, in.Field)` |
 | Fixed array | `[3]float64` | Inline per-element copy |
 | Pointer array | `[3]*int` | Inline per-element copy |
-| Struct array | `[3]Struct` | Inline `*in.X[i].DeepCopy()` per element |
+| Struct array | `[3]Struct` | Inline `*in.X[i].deepcopy(v)` per element |
 | interface{} | `interface{}` | `*out = *in` (shallow copy) |
-| External embed (ptr) | `*database.AccountInfo` | `dc.CopyPtr(in.Field)` |
-| External embed (value) | `database.AccountInfo` | `*dc.CopyPtr(&in.Field)` |
-| Self-referential | `*Node` (references self) | visited map + recursive copy |
+| External embed (ptr) | `*database.AccountInfo` | `dc.CopyPtr(v, in.Field)` |
+| External embed (value) | `database.AccountInfo` | `*dc.CopyPtr(v, &in.Field)` |
+| Self-referential | `*Node` (references self) | Visited map + recursive copy |
 
 ## Installation
 
@@ -85,18 +85,29 @@ func (in *User) DeepCopy() *User {
     if in == nil {
         return nil
     }
+    return in.deepcopy(make(dc.Visited))
+}
+
+func (in *User) deepcopy(v dc.Visited) *User {
+    if in == nil {
+        return nil
+    }
+    if out, ok := v[in]; ok {
+        return out.(*User)
+    }
     out := new(User)
+    v[in] = out
     *out = *in
     out.Tags = dc.CopySlice(in.Tags)
-    out.Metadata = dc.CopyMap(in.Metadata)
-    out.Manager = dc.CopyPtr(in.Manager)
+    out.Metadata = dc.CopyMap(v, in.Metadata)
+    out.Manager = dc.CopyPtr(v, in.Manager)
     return out
 }
 ```
 
 ## Circular Reference Support
 
-For self-referential structs, the generator automatically detects and generates deep copy methods with a visited map:
+For all structs, the generator automatically generates deep copy methods with a Visited map for cycle detection:
 
 ```go
 type TreeNode struct {
@@ -107,38 +118,28 @@ type TreeNode struct {
 
 // Generated code
 func (in *TreeNode) DeepCopy() *TreeNode {
-    visited := make(map[any]any)
-    return in.deepcopy(visited)
+    return in.deepcopy(make(dc.Visited))
 }
 
-func (in *TreeNode) deepcopy(visited map[any]any) *TreeNode {
+func (in *TreeNode) deepcopy(v dc.Visited) *TreeNode {
     if in == nil {
         return nil
     }
-    if out, ok := visited[in]; ok {
+    if out, ok := v[in]; ok {
         return out.(*TreeNode)
     }
     out := new(TreeNode)
-    visited[in] = out
+    v[in] = out
     *out = *in
-    if in.Children != nil {
-        out.Children = make([]*TreeNode, len(in.Children))
-        for i, v := range in.Children {
-            if v != nil {
-                out.Children[i] = v.deepcopy(visited)
-            }
-        }
-    }
-    if in.Parent != nil {
-        out.Parent = in.Parent.deepcopy(visited)
-    }
+    out.Children = dc.CopySlicePtr(v, in.Children)
+    out.Parent = in.Parent.deepcopy(v)
     return out
 }
 ```
 
 ## Cross-Package Embedding Support
 
-For embedded structs from external packages, the generator automatically uses `dc.CopyPtr` to detect `DeepCopy()` methods at runtime:
+For embedded structs from external packages, the generator automatically uses `dc.CopyPtr` to detect `deepcopy()` methods at runtime:
 
 ```go
 import (
@@ -153,9 +154,20 @@ type Player struct {
 
 // Generated code (external package embedded value type)
 func (in *Player) DeepCopy() *Player {
+    return in.deepcopy(make(dc.Visited))
+}
+
+func (in *Player) deepcopy(v dc.Visited) *Player {
+    if in == nil {
+        return nil
+    }
+    if out, ok := v[in]; ok {
+        return out.(*Player)
+    }
     out := new(Player)
+    v[in] = out
     *out = *in
-    out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)
+    out.AccountInfo = *dc.CopyPtr(v, &in.AccountInfo)
     return out
 }
 ```

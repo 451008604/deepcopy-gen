@@ -21,21 +21,21 @@
 | 类型 | 示例 | 生成代码 |
 |---|---|---|
 | 基本类型 | `int`, `string`, `bool` | `*out = *in`（值拷贝） |
-| 指针 | `*string`, `*int` | `dc.CopyPtr(in.Field)` |
-| 双重指针 | `**float64` | `dc.CopyDoublePtr(in.Field)` |
+| 指针 | `*string`, `*int` | `dc.CopyPtr(v, in.Field)` |
+| 双重指针 | `**float64` | `dc.CopyDoublePtr(v, in.Field)` |
 | 切片 | `[]string` | `dc.CopySlice(in.Field)` |
-| 指针切片 | `[]*int` | `dc.CopySlicePtr(in.Field)` |
-| 嵌套切片 | `[][]float64` | `dc.CopySliceSlice(in.Field)` |
-| Map | `map[string]string` | `dc.CopyMap(in.Field)` |
-| 指针值 Map | `map[string]*bool` | `dc.CopyMapPtr(in.Field)` |
-| 切片值 Map | `map[string][]int` | `dc.CopyMapSlice(in.Field)` |
+| 指针切片 | `[]*int` | `dc.CopySlicePtr(v, in.Field)` |
+| 嵌套切片 | `[][]float64` | `dc.CopySliceSlice(v, in.Field)` |
+| Map | `map[string]string` | `dc.CopyMap(v, in.Field)` |
+| 指针值 Map | `map[string]*bool` | `dc.CopyMapPtr(v, in.Field)` |
+| 切片值 Map | `map[string][]int` | `dc.CopyMapSlice(v, in.Field)` |
 | 固定数组 | `[3]float64` | 逐元素拷贝 |
 | 指针数组 | `[3]*int` | 逐元素内联拷贝 |
-| 结构体数组 | `[3]Struct` | 逐元素内联 `*in.X[i].DeepCopy()` |
+| 结构体数组 | `[3]Struct` | 逐元素内联 `*in.X[i].deepcopy(v)` |
 | interface{} | `interface{}` | `*out = *in`（浅拷贝） |
-| 外部包嵌入指针 | `*database.AccountInfo` | `dc.CopyPtr(in.Field)` |
-| 外部包嵌入值 | `database.AccountInfo` | `*dc.CopyPtr(&in.Field)` |
-| 自引用 | `*Node` (指向自身) | visited map + 递归拷贝 |
+| 外部包嵌入指针 | `*database.AccountInfo` | `dc.CopyPtr(v, in.Field)` |
+| 外部包嵌入值 | `database.AccountInfo` | `*dc.CopyPtr(v, &in.Field)` |
+| 自引用 | `*Node` (指向自身) | Visited map + 递归拷贝 |
 
 ## 安装
 
@@ -85,18 +85,29 @@ func (in *User) DeepCopy() *User {
     if in == nil {
         return nil
     }
+    return in.deepcopy(make(dc.Visited))
+}
+
+func (in *User) deepcopy(v dc.Visited) *User {
+    if in == nil {
+        return nil
+    }
+    if out, ok := v[in]; ok {
+        return out.(*User)
+    }
     out := new(User)
+    v[in] = out
     *out = *in
     out.Tags = dc.CopySlice(in.Tags)
-    out.Metadata = dc.CopyMap(in.Metadata)
-    out.Manager = dc.CopyPtr(in.Manager)
+    out.Metadata = dc.CopyMap(v, in.Metadata)
+    out.Manager = dc.CopyPtr(v, in.Manager)
     return out
 }
 ```
 
 ## 循环引用支持
 
-对于自引用结构体，生成器会自动检测并生成带 visited map 的深拷贝方法：
+对于所有结构体，生成器会自动生成带 Visited map 的深拷贝方法，支持循环引用检测：
 
 ```go
 type TreeNode struct {
@@ -107,38 +118,28 @@ type TreeNode struct {
 
 // 生成的代码
 func (in *TreeNode) DeepCopy() *TreeNode {
-    visited := make(map[any]any)
-    return in.deepcopy(visited)
+    return in.deepcopy(make(dc.Visited))
 }
 
-func (in *TreeNode) deepcopy(visited map[any]any) *TreeNode {
+func (in *TreeNode) deepcopy(v dc.Visited) *TreeNode {
     if in == nil {
         return nil
     }
-    if out, ok := visited[in]; ok {
+    if out, ok := v[in]; ok {
         return out.(*TreeNode)
     }
     out := new(TreeNode)
-    visited[in] = out
+    v[in] = out
     *out = *in
-    if in.Children != nil {
-        out.Children = make([]*TreeNode, len(in.Children))
-        for i, v := range in.Children {
-            if v != nil {
-                out.Children[i] = v.deepcopy(visited)
-            }
-        }
-    }
-    if in.Parent != nil {
-        out.Parent = in.Parent.deepcopy(visited)
-    }
+    out.Children = dc.CopySlicePtr(v, in.Children)
+    out.Parent = in.Parent.deepcopy(v)
     return out
 }
 ```
 
 ## 跨包嵌入支持
 
-对于外部包的嵌入结构体，生成器会自动使用 `dc.CopyPtr` 运行时检测 `DeepCopy()` 方法：
+对于外部包的嵌入结构体，生成器会自动使用 `dc.CopyPtr` 运行时检测 `deepcopy()` 方法：
 
 ```go
 import (
@@ -153,9 +154,20 @@ type Player struct {
 
 // 生成的代码（外部包嵌入值类型）
 func (in *Player) DeepCopy() *Player {
+    return in.deepcopy(make(dc.Visited))
+}
+
+func (in *Player) deepcopy(v dc.Visited) *Player {
+    if in == nil {
+        return nil
+    }
+    if out, ok := v[in]; ok {
+        return out.(*Player)
+    }
     out := new(Player)
+    v[in] = out
     *out = *in
-    out.AccountInfo = *dc.CopyPtr(&in.AccountInfo)
+    out.AccountInfo = *dc.CopyPtr(v, &in.AccountInfo)
     return out
 }
 ```
