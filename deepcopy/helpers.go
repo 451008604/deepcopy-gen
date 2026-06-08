@@ -19,8 +19,12 @@ func CopyDoublePtr[T any](p **T) **T {
 	}
 	out := new(*T)
 	if *p != nil {
-		*out = new(T)
-		**out = **p
+		if copier, ok := any(*p).(interface{ DeepCopy() *T }); ok {
+			*out = copier.DeepCopy()
+		} else {
+			*out = new(T)
+			**out = **p
+		}
 	}
 	return out
 }
@@ -60,7 +64,13 @@ func CopySliceSlice[T any](s [][]T) [][]T {
 	for i, v := range s {
 		if v != nil {
 			out[i] = make([]T, len(v))
-			copy(out[i], v)
+			for j, elem := range v {
+				if copier, ok := any(elem).(interface{ DeepCopy() *T }); ok {
+					out[i][j] = *copier.DeepCopy()
+				} else {
+					out[i][j] = elem
+				}
+			}
 		}
 	}
 	return out
@@ -129,7 +139,13 @@ func CopyMapSlice[K comparable, V any](m map[K][]V) map[K][]V {
 	for k, v := range m {
 		if v != nil {
 			out[k] = make([]V, len(v))
-			copy(out[k], v)
+			for i, elem := range v {
+				if copier, ok := any(elem).(interface{ DeepCopy() *V }); ok {
+					out[k][i] = *copier.DeepCopy()
+				} else {
+					out[k][i] = elem
+				}
+			}
 		} else {
 			out[k] = nil
 		}

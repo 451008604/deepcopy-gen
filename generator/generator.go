@@ -214,8 +214,47 @@ func (g *genState) genFieldCopySelfRef(dst, src string, f types.FieldInfo, struc
 			b.WriteString("\t}\n")
 			return b.String()
 		}
+		if f.ElemType != nil && f.ElemType.Category == types.TypeStruct &&
+			f.ElemType.TypeName == structName {
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t%s = make([]%s, len(%s))\n", dst, structName, src))
+			b.WriteString(fmt.Sprintf("\t\tfor i := range %s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t%s[i] = *%s[i].deepcopy(visited)\n", dst, src))
+			b.WriteString("\t\t}\n")
+			b.WriteString("\t}\n")
+			return b.String()
+		}
 		return g.genSliceCopy(dst, src, f)
 	case types.TypeMap:
+		if f.MapValueType != nil {
+			if f.MapValueType.Category == types.TypePointer &&
+				f.MapValueType.TypeName == structName {
+				var b strings.Builder
+				b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+				b.WriteString(fmt.Sprintf("\t\t%s = make(map[%s]*%s, len(%s))\n", dst, f.MapKeyType.TypeExpr, structName, src))
+				b.WriteString(fmt.Sprintf("\t\tfor k, v := range %s {\n", src))
+				b.WriteString(fmt.Sprintf("\t\t\tif v != nil {\n"))
+				b.WriteString(fmt.Sprintf("\t\t\t\t%s[k] = v.deepcopy(visited)\n", dst))
+				b.WriteString(fmt.Sprintf("\t\t\t} else {\n"))
+				b.WriteString(fmt.Sprintf("\t\t\t\t%s[k] = nil\n", dst))
+				b.WriteString(fmt.Sprintf("\t\t\t}\n"))
+				b.WriteString("\t\t}\n")
+				b.WriteString("\t}\n")
+				return b.String()
+			}
+			if f.MapValueType.Category == types.TypeStruct &&
+				f.MapValueType.TypeName == structName {
+				var b strings.Builder
+				b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+				b.WriteString(fmt.Sprintf("\t\t%s = make(map[%s]%s, len(%s))\n", dst, f.MapKeyType.TypeExpr, structName, src))
+				b.WriteString(fmt.Sprintf("\t\tfor k, v := range %s {\n", src))
+				b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *v.deepcopy(visited)\n", dst))
+				b.WriteString("\t\t}\n")
+				b.WriteString("\t}\n")
+				return b.String()
+			}
+		}
 		return g.genMapCopy(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopy(dst, src, f)
