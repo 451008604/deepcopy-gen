@@ -1,12 +1,27 @@
 package deepcopy
 
+import (
+	"sync"
+)
+
+var copyCycle sync.Map
+
 func CopyPtr[T any](p *T) *T {
 	if p == nil {
 		return nil
 	}
 
+	addr := any(p)
+	if existing, ok := copyCycle.Load(addr); ok {
+		return existing.(*T)
+	}
+
 	if copier, ok := any(p).(interface{ DeepCopy() *T }); ok {
-		return copier.DeepCopy()
+		out := new(T)
+		copyCycle.Store(addr, out)
+		defer copyCycle.Delete(addr)
+		*out = *copier.DeepCopy()
+		return out
 	}
 	out := new(T)
 	*out = *p
@@ -19,12 +34,7 @@ func CopyDoublePtr[T any](p **T) **T {
 	}
 	out := new(*T)
 	if *p != nil {
-		if copier, ok := any(*p).(interface{ DeepCopy() *T }); ok {
-			*out = copier.DeepCopy()
-		} else {
-			*out = new(T)
-			**out = **p
-		}
+		*out = CopyPtr(*p)
 	}
 	return out
 }
@@ -45,12 +55,7 @@ func CopySlicePtr[T any](s []*T) []*T {
 	out := make([]*T, len(s))
 	for i, v := range s {
 		if v != nil {
-			if copier, ok := any(v).(interface{ DeepCopy() *T }); ok {
-				out[i] = copier.DeepCopy()
-			} else {
-				out[i] = new(T)
-				*out[i] = *v
-			}
+			out[i] = CopyPtr(v)
 		}
 	}
 	return out
@@ -118,12 +123,7 @@ func CopyMapPtr[K comparable, V any](m map[K]*V) map[K]*V {
 	out := make(map[K]*V, len(m))
 	for k, v := range m {
 		if v != nil {
-			if copier, ok := any(v).(interface{ DeepCopy() *V }); ok {
-				out[k] = copier.DeepCopy()
-			} else {
-				out[k] = new(V)
-				*out[k] = *v
-			}
+			out[k] = CopyPtr(v)
 		} else {
 			out[k] = nil
 		}
