@@ -7,6 +7,8 @@ import (
 	"github.com/451008604/deepcopy-gen/scanner"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func main() {
@@ -56,20 +58,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("%s is not a directory", *dir)
 	}
 
+	existingFiles := collectExistingDCFiles(*dir)
+
 	packages, err := scanner.ScanDir(*dir)
 	if err != nil {
 		return fmt.Errorf("scanning: %w", err)
 	}
 
+	generatedFiles := make(map[string]bool)
 	totalStructs := 0
 	for _, pkg := range packages {
 		if len(pkg.Structs) == 0 {
-			if !*dryRun {
-				outPath := generator.OutputPath(pkg.Dir)
-				if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("removing old %s: %w", outPath, err)
-				}
-			}
 			continue
 		}
 		totalStructs += len(pkg.Structs)
@@ -94,8 +93,22 @@ func run(args []string, stdout, stderr io.Writer) error {
 			if err := os.WriteFile(outPath, []byte(code), 0644); err != nil {
 				return fmt.Errorf("writing %s: %w", outPath, err)
 			}
+			generatedFiles[outPath] = true
 			if *verbose {
 				fmt.Fprintf(stdout, "wrote %s (%d structs)\n", outPath, len(pkg.Structs))
+			}
+		}
+	}
+
+	if !*dryRun {
+		for _, oldFile := range existingFiles {
+			if !generatedFiles[oldFile] {
+				if err := os.Remove(oldFile); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("removing stale %s: %w", oldFile, err)
+				}
+				if *verbose {
+					fmt.Fprintf(stdout, "removed stale %s\n", oldFile)
+				}
 			}
 		}
 	}
@@ -105,4 +118,18 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	return nil
+}
+
+func collectExistingDCFiles(dir string) []string {
+	var files []string
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".dc.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files
 }
