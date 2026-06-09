@@ -29,6 +29,9 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 		if strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		if strings.HasSuffix(path, ".dc.go") {
+			return nil
+		}
 
 		fset := token.NewFileSet()
 		f, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
