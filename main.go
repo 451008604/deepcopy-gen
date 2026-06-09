@@ -79,6 +79,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, code)
 		} else {
 			outPath := generator.OutputPath(pkg.Dir)
+			if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing old %s: %w", outPath, err)
+			}
 			if err := os.WriteFile(outPath, []byte(code), 0644); err != nil {
 				return fmt.Errorf("writing %s: %w", outPath, err)
 			}
