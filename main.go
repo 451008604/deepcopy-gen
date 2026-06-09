@@ -28,7 +28,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "Options:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(stderr, "\nExamples:\n")
-		fmt.Fprintf(stderr, "  deepcopy-gen -dir ./models          # Generate deepcopy.go files\n")
+		fmt.Fprintf(stderr, "  deepcopy-gen -dir ./models          # Generate deepcopy.dc.go files\n")
 		fmt.Fprintf(stderr, "  deepcopy-gen -dir . -dry-run        # Preview generated code\n")
 		fmt.Fprintf(stderr, "  deepcopy-gen -dir . -v              # Verbose output\n")
 	}

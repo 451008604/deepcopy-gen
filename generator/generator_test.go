@@ -165,7 +165,7 @@ func TestGenerate_NilReceiver(t *testing.T) {
 
 func TestGenerate_OutputPath(t *testing.T) {
 	path := OutputPath("/some/dir")
-	expected := filepath.Join("/some/dir", "deepcopy.go")
+	expected := filepath.Join("/some/dir", "deepcopy.dc.go")
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)
 	}

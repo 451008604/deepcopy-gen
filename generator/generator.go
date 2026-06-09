@@ -34,12 +34,12 @@ func GenerateWithOptions(pkg types.PackageInfo, opts Options) (string, error) {
 
 func ValidateGenerated(code string) error {
 	fset := token.NewFileSet()
-	_, err := parser.ParseFile(fset, "deepcopy.go", code, parser.AllErrors)
+	_, err := parser.ParseFile(fset, "deepcopy.dc.go", code, parser.AllErrors)
 	return err
 }
 
 func OutputPath(pkgDir string) string {
-	return filepath.Join(pkgDir, "deepcopy.go")
+	return filepath.Join(pkgDir, "deepcopy.dc.go")
 }
 
 type genState struct {

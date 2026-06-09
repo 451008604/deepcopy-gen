@@ -38,7 +38,7 @@ func TestRun_Verbose(t *testing.T) {
 	if !strings.Contains(stdout.String(), "wrote") {
 		t.Error("expected verbose output to contain 'wrote'")
 	}
-	os.Remove(filepath.Join(dir, "deepcopy.go"))
+	os.Remove(filepath.Join(dir, "deepcopy.dc.go"))
 }
 
 func TestRun_WritesFiles(t *testing.T) {
@@ -51,7 +51,7 @@ func TestRun_WritesFiles(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	outPath := filepath.Join(dir, "deepcopy.go")
+	outPath := filepath.Join(dir, "deepcopy.dc.go")
 	data, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatalf("generated file not found: %v", err)
