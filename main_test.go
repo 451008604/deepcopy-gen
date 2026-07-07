@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,5 +124,31 @@ func TestRun_NoArgsShowsHelp(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Error("expected stderr to contain 'Usage:'")
+	}
+}
+
+// TestTestDataCompiles is a regression guard: every checked-in testdata
+// package (including its generated deepcopy.dc.go) must compile. This catches
+// generator bugs that parse-only validation (assertValidGo) misses, such as
+// references to undefined methods or calls to unexported methods across
+// package boundaries.
+func TestTestDataCompiles(t *testing.T) {
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		t.Fatalf("read testdata: %v", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sub := filepath.Join("testdata", e.Name())
+		t.Run(e.Name(), func(t *testing.T) {
+			cmd := exec.Command("go", "build", "./...")
+			cmd.Dir = sub
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("go build %s failed:\n%s", sub, out)
+			}
+		})
 	}
 }

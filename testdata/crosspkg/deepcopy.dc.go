@@ -122,7 +122,7 @@ func (in *PointerEmbed) deepcopy(v dc.Visited) *PointerEmbed {
 	out := new(PointerEmbed)
 	v[in] = out
 	*out = *in
-	out.AccountInfo = in.AccountInfo.deepcopy(v)
+	out.AccountInfo = dc.CopyPtr(v, in.AccountInfo)
 	return out
 }
 
@@ -290,8 +290,39 @@ func (in *ExternalWithMapOfExternal) deepcopy(v dc.Visited) *ExternalWithMapOfEx
 	out := new(ExternalWithMapOfExternal)
 	v[in] = out
 	*out = *in
-	out.Inventory = dc.CopyMap(v, in.Inventory)
+	if in.Inventory != nil {
+		out.Inventory = make(map[string]external.GameItem, len(in.Inventory))
+		for k, val := range in.Inventory {
+			out.Inventory[k] = *dc.CopyPtr(v, &val)
+		}
+	}
 	out.LastActive = dc.CopyMapPtr(v, in.LastActive)
+	return out
+}
+
+// DeepCopy returns a deep copy of compensationHeap.
+func (in *compensationHeap) DeepCopy() *compensationHeap {
+	if in == nil {
+		return nil
+	}
+	return in.deepcopy(make(dc.Visited))
+}
+
+func (in *compensationHeap) deepcopy(v dc.Visited) *compensationHeap {
+	if in == nil {
+		return nil
+	}
+	if out, ok := v[in]; ok {
+		return out.(*compensationHeap)
+	}
+	out := new(compensationHeap)
+	v[in] = out
+	if *in != nil {
+		*out = make(compensationHeap, len(*in))
+		for i := range *in {
+			(*out)[i] = *dc.CopyPtr(v, &(*in)[i])
+		}
+	}
 	return out
 }
 
@@ -314,6 +345,11 @@ func (in *NestedExternal) deepcopy(v dc.Visited) *NestedExternal {
 	v[in] = out
 	*out = *in
 	out.GameState = *dc.CopyPtr(v, &in.GameState)
+	out.MainCharacter = *dc.CopyPtr(v, &in.MainCharacter)
+	out.heap = in.heap.deepcopy(v)
+	out.heap2 = *in.heap2.deepcopy(v)
+	out.compensationHeap = *in.compensationHeap.deepcopy(v)
+	out.TCPListener = *dc.CopyPtr(v, &in.TCPListener)
 	return out
 }
 

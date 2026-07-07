@@ -109,7 +109,7 @@ func TestScanDir_AllPackages(t *testing.T) {
 	}
 	sort.Strings(pkgNames)
 
-	expected := []string{"complex", "crosspkg", "edgecase", "embedded", "empty", "external", "gamecore", "iface", "multifile", "nested", "selector", "selfref", "simple"}
+	expected := []string{"complex", "crosspkg", "edgecase", "embedded", "empty", "external", "gamecore", "iface", "multifile", "namedtypes", "nested", "selector", "selfref", "simple"}
 	if !sliceEqual(pkgNames, expected) {
 		t.Errorf("expected packages %v, got %v", expected, pkgNames)
 	}
@@ -801,6 +801,94 @@ type Event struct {
 	}
 	if embedded.PackageName != "time" {
 		t.Errorf("expected PackageName 'time', got %q", embedded.PackageName)
+	}
+}
+
+func TestScanDir_NamedTypes_HasDeepCopy(t *testing.T) {
+	dir := filepath.Join(testdataDir(t), "namedtypes")
+	packages, err := ScanDir(dir)
+	if err != nil {
+		t.Fatalf("ScanDir failed: %v", err)
+	}
+	pkg := packages[0]
+
+	// Named slice/array/map types and named structs have a generated method.
+	for _, name := range []string{"Tags", "Meta", "Matrix", "Inventory", "Coords", "Item", "Addr"} {
+		// These types are collected (as structs or named composites).
+		if findStruct(pkg.Structs, name) == nil {
+			t.Errorf("expected named type %s to be collected", name)
+		}
+	}
+
+	type tc struct {
+		structName string
+		fieldName  string
+		want       bool
+	}
+	cases := []tc{
+		// Named basic alias pointer/value: no method, shallow correct.
+		{"NamedPtrFields", "S", false},
+		// Named array/map pointer: method exists.
+		{"NamedPtrFields", "M", true},
+		{"NamedPtrFields", "I", true},
+		// Named slice/map/array value: method exists.
+		{"NamedValueFields", "T", true},
+		{"NamedValueFields", "M", true},
+		{"NamedValueFields", "C", true},
+		// Same-pkg struct value: method exists.
+		{"HasStructValue", "Home", true},
+	}
+	for _, c := range cases {
+		s := findStruct(pkg.Structs, c.structName)
+		if s == nil {
+			t.Errorf("struct %s not found", c.structName)
+			continue
+		}
+		f := findField(s.Fields, c.fieldName)
+		if f == nil {
+			t.Errorf("field %s not found", c.fieldName)
+			continue
+		}
+		// For pointer fields the flag lives on ElemType.
+		flag := f.HasDeepCopy
+		if f.Category == types.TypePointer && f.ElemType != nil {
+			flag = f.ElemType.HasDeepCopy
+		}
+		if flag != c.want {
+			t.Errorf("%s.%s: HasDeepCopy=%v, want %v", c.structName, c.fieldName, flag, c.want)
+		}
+	}
+}
+
+func TestScanDir_NamedTypes_AnonFields(t *testing.T) {
+	dir := filepath.Join(testdataDir(t), "namedtypes")
+	packages, err := ScanDir(dir)
+	if err != nil {
+		t.Fatalf("ScanDir failed: %v", err)
+	}
+	s := findStruct(packages[0].Structs, "AnonHolder")
+	if s == nil {
+		t.Fatal("AnonHolder not found")
+	}
+	f := findField(s.Fields, "S")
+	if f == nil {
+		t.Fatal("field S not found")
+	}
+	if len(f.AnonFields) == 0 {
+		t.Fatal("anonymous struct field S should have AnonFields")
+	}
+	// Inner nested anonymous struct should also be recorded.
+	var inner *types.FieldInfo
+	for i := range f.AnonFields {
+		if f.AnonFields[i].Name == "Inner" {
+			inner = &f.AnonFields[i]
+		}
+	}
+	if inner == nil {
+		t.Fatal("Inner field of anonymous struct not recorded")
+	}
+	if len(inner.AnonFields) == 0 {
+		t.Error("nested anonymous struct should have AnonFields")
 	}
 }
 

@@ -18,6 +18,15 @@ func CopyPtr[T any](v Visited, p *T) *T {
 	if copier, ok := any(p).(interface{ deepcopy(Visited) *T }); ok {
 		return copier.deepcopy(v)
 	}
+	// Cross-package types expose only the exported DeepCopy(); the unexported
+	// deepcopy assertion above cannot see it, so fall back to DeepCopy().
+	if copier, ok := any(p).(interface{ DeepCopy() *T }); ok {
+		out := copier.DeepCopy()
+		if out != nil {
+			v[p] = out
+		}
+		return out
+	}
 
 	out := new(T)
 	*out = *p

@@ -45,6 +45,7 @@ func (in *Character) deepcopy(v dc.Visited) *Character {
 	out := new(Character)
 	v[in] = out
 	*out = *in
+	out.Pos = *in.Pos.deepcopy(v)
 	return out
 }
 

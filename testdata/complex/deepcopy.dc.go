@@ -26,7 +26,12 @@ func (in *WithPointer) deepcopy(v dc.Visited) *WithPointer {
 	*out = *in
 	out.Name = dc.CopyPtr(v, in.Name)
 	out.Value = dc.CopyPtr(v, in.Value)
-	out.Data = dc.CopyPtr(v, in.Data)
+	if in.Data != nil {
+		out.Data = new([]byte)
+		if *in.Data != nil {
+			*out.Data = dc.CopySlice(*in.Data)
+		}
+	}
 	out.Ref = dc.CopyDoublePtr(v, in.Ref)
 	return out
 }

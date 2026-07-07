@@ -24,6 +24,7 @@ func (in *Event) deepcopy(v dc.Visited) *Event {
 	out := new(Event)
 	v[in] = out
 	*out = *in
+	out.CreatedAt = *dc.CopyPtr(v, &in.CreatedAt)
 	out.UpdatedAt = dc.CopyPtr(v, in.UpdatedAt)
 	return out
 }

@@ -73,7 +73,7 @@ func TestGenerate_Complex_PointerFields(t *testing.T) {
 	assertContains(t, code, "func (in *WithPointer) DeepCopy() *WithPointer")
 	assertContains(t, code, "out.Name = dc.CopyPtr(v, in.Name)")
 	assertContains(t, code, "out.Value = dc.CopyPtr(v, in.Value)")
-	assertContains(t, code, "out.Data = dc.CopyPtr(v, in.Data)")
+	assertContains(t, code, "out.Data = new([]byte)")
 	assertContains(t, code, "out.Ref = dc.CopyDoublePtr(v, in.Ref)")
 }
 
@@ -612,7 +612,7 @@ func TestGenerate_CrossPkg_ExternalWithMapOfExternal(t *testing.T) {
 	}
 
 	assertContains(t, code, "func (in *ExternalWithMapOfExternal) DeepCopy() *ExternalWithMapOfExternal")
-	assertContains(t, code, "out.Inventory = dc.CopyMap(v, in.Inventory)")
+	assertContains(t, code, "out.Inventory[k] = *dc.CopyPtr(v, &val)")
 	assertContains(t, code, "out.LastActive = dc.CopyMapPtr(v, in.LastActive)")
 }
 
@@ -658,6 +658,98 @@ func TestGenerate_CrossPkg_AllStructs(t *testing.T) {
 	for _, name := range expectedStructs {
 		assertContains(t, code, "func (in *"+name+") DeepCopy() *"+name)
 	}
+}
+
+func TestGenerate_NamedTypes_PtrFields(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	assertValidGo(t, code)
+	// Named basic alias pointer: shallow via dc.CopyPtr (no .deepcopy call).
+	assertContains(t, code, "out.S = dc.CopyPtr(v, in.S)")
+	// Named array/map pointer: direct .deepcopy(v) (same-package method).
+	assertContains(t, code, "out.M = in.M.deepcopy(v)")
+	assertContains(t, code, "out.I = in.I.deepcopy(v)")
+}
+
+func TestGenerate_NamedTypes_ValueFields(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Named slice/map/array value fields now invoke the generated method
+	// instead of relying on the shallow *out = *in.
+	assertContains(t, code, "out.T = *in.T.deepcopy(v)")
+	assertContains(t, code, "out.M = *in.M.deepcopy(v)")
+	assertContains(t, code, "out.C = *in.C.deepcopy(v)")
+}
+
+func TestGenerate_NamedTypes_PtrToComposite(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Pointer-to-slice and pointer-to-map emit inline element-wise copies.
+	assertContains(t, code, "out.Basic = new([]string)")
+	assertContains(t, code, "*out.Basic = dc.CopySlice(*in.Basic)")
+	assertContains(t, code, "(*out.Items)[i] = dc.CopyPtr(v, (*in.Items)[i])")
+	assertContains(t, code, "out.M = new(map[string]int)")
+	assertContains(t, code, "(*out.MI)[k] = dc.CopyPtr(v, val)")
+}
+
+func TestGenerate_NamedTypes_MapOfStruct(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Map of struct value emits an inline loop (values are not addressable).
+	assertContains(t, code, "out.Same = make(map[string]Item, len(in.Same))")
+	assertContains(t, code, "out.Same[k] = *val.deepcopy(v)")
+	assertContains(t, code, "out.Cross = make(map[string]external.GameItem, len(in.Cross))")
+	assertContains(t, code, "out.Cross[k] = *dc.CopyPtr(v, &val)")
+}
+
+func TestGenerate_NamedTypes_AnonStruct(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Anonymous struct: shallow-copy the value, then deep-copy ref fields.
+	assertContains(t, code, "out.S = in.S")
+	assertContains(t, code, "out.S.N = dc.CopyPtr(v, in.S.N)")
+	assertContains(t, code, "out.S.Inner.P = dc.CopyPtr(v, in.S.Inner.P)")
+}
+
+func TestGenerate_NamedTypes_StructValueFields(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Same-pkg struct value field now calls .deepcopy (was shallow before).
+	assertContains(t, code, "out.Home = *in.Home.deepcopy(v)")
+	// Cross-pkg struct value field deep-copies via dc.CopyPtr.
+	assertContains(t, code, "out.Owner = *dc.CopyPtr(v, &in.Owner)")
+}
+
+func TestGenerate_NamedTypes_MethodsForNamedComposites(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Named slice/array/map types get generated deepcopy methods.
+	for _, name := range []string{"Tags", "Meta", "Matrix", "Inventory", "Coords"} {
+		assertContains(t, code, "func (in *"+name+") deepcopy(v dc.Visited) *"+name)
+	}
+	// Named basic alias (Score) must NOT get a method.
+	assertNotContains(t, code, "func (in *Score) deepcopy")
 }
 
 func assertValidGo(t *testing.T, code string) {

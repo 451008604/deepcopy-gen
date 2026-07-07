@@ -45,6 +45,7 @@ func (in *Employee) deepcopy(v dc.Visited) *Employee {
 	out := new(Employee)
 	v[in] = out
 	*out = *in
+	out.HomeAddr = *in.HomeAddr.deepcopy(v)
 	out.WorkAddr = in.WorkAddr.deepcopy(v)
 	out.Emails = dc.CopySlice(in.Emails)
 	out.Manager = in.Manager.deepcopy(v)

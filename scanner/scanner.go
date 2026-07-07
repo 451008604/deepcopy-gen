@@ -16,51 +16,68 @@ import (
 func ScanDir(dir string) ([]types.PackageInfo, error) {
 	packages := make(map[string]*types.PackageInfo)
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	type cachedFile struct {
+		path   string
+		pkgDir string
+		file   *ast.File
+	}
+	var files []cachedFile
+
+	// Pass 1: parse every file and build a package-level type table so that
+	// field resolution can tell named basic aliases / anonymous composites
+	// apart from named struct/slice/map/array types that carry a deepcopy
+	// method.
+	typeDefs := make(map[string]map[string]ast.Expr)
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".dc.go") {
 			return nil
 		}
-		if strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		if strings.HasSuffix(path, ".dc.go") {
-			return nil
-		}
-
 		fset := token.NewFileSet()
 		f, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr != nil {
 			return parseErr
 		}
-
-		pkgName := f.Name.Name
 		pkgDir := filepath.Dir(path)
-		key := pkgDir
-
-		pkg, ok := packages[key]
-		if !ok {
-			pkg = &types.PackageInfo{
-				Name: pkgName,
-				Dir:  pkgDir,
-			}
-			packages[key] = pkg
+		if _, ok := packages[pkgDir]; !ok {
+			packages[pkgDir] = &types.PackageInfo{Name: f.Name.Name, Dir: pkgDir}
 		}
-
-		pkg.GoFiles = append(pkg.GoFiles, path)
-		extracted := extractStructs(f, path)
-		detectSelfReferential(extracted)
-		pkg.Structs = append(pkg.Structs, extracted...)
-
+		td := typeDefs[pkgDir]
+		if td == nil {
+			td = make(map[string]ast.Expr)
+			typeDefs[pkgDir] = td
+		}
+		for _, decl := range f.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					td[typeSpec.Name.Name] = typeSpec.Type
+				}
+			}
+		}
+		files = append(files, cachedFile{path: path, pkgDir: pkgDir, file: f})
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	// Pass 2: extract structs (and named composite types), resolving field
+	// types against the package type table.
+	for _, cf := range files {
+		pkg := packages[cf.pkgDir]
+		pkg.GoFiles = append(pkg.GoFiles, cf.path)
+		extracted := extractStructs(cf.file, cf.path, typeDefs[cf.pkgDir])
+		detectSelfReferential(extracted)
+		pkg.Structs = append(pkg.Structs, extracted...)
 	}
 
 	result := make([]types.PackageInfo, 0, len(packages))
@@ -70,7 +87,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 	return result, nil
 }
 
-func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
+func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]ast.Expr) []types.StructInfo {
 	var structs []types.StructInfo
 
 	importMap := make(map[string]string)
@@ -97,6 +114,21 @@ func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
 			}
 			structType, ok := typeSpec.Type.(*ast.StructType)
 			if !ok {
+				// Collect named composite types (slice/array/map) so the
+				// generator emits a deepcopy method for them; fields
+				// referencing the named type can then call `.deepcopy(v)`.
+				// Named basic aliases and pointer/chan/interface aliases are
+				// skipped (no method; shallow copy is correct or N/A).
+				switch typeSpec.Type.(type) {
+				case *ast.ArrayType, *ast.MapType:
+					u := buildFieldInfo("", typeSpec.Type, importMap, typeDefs)
+					structs = append(structs, types.StructInfo{
+						Name:       typeSpec.Name.Name,
+						Package:    f.Name.Name,
+						SourceFile: sourceFile,
+						Underlying: &u,
+					})
+				}
 				continue
 			}
 
@@ -108,7 +140,7 @@ func extractStructs(f *ast.File, sourceFile string) []types.StructInfo {
 
 			if structType.Fields != nil {
 				for _, field := range structType.Fields.List {
-					fi := parseField(field, importMap)
+					fi := parseField(field, importMap, typeDefs)
 					si.Fields = append(si.Fields, fi...)
 				}
 			}
@@ -193,10 +225,10 @@ func collectPointerTargets(f types.FieldInfo) []string {
 	return result
 }
 
-func parseField(field *ast.Field, importMap map[string]string) []types.FieldInfo {
+func parseField(field *ast.Field, importMap map[string]string, typeDefs map[string]ast.Expr) []types.FieldInfo {
 	if len(field.Names) == 0 {
 		name := embeddedFieldName(field.Type)
-		fi := buildFieldInfo(name, field.Type, importMap)
+		fi := buildFieldInfo(name, field.Type, importMap, typeDefs)
 		fi.IsEmbedded = true
 		fi.IsExported = isExportedTypeExpr(field.Type)
 		return []types.FieldInfo{fi}
@@ -204,23 +236,23 @@ func parseField(field *ast.Field, importMap map[string]string) []types.FieldInfo
 
 	var fields []types.FieldInfo
 	for _, name := range field.Names {
-		fi := buildFieldInfo(name.Name, field.Type, importMap)
+		fi := buildFieldInfo(name.Name, field.Type, importMap, typeDefs)
 		fi.IsExported = len(name.Name) > 0 && unicode.IsUpper(rune(name.Name[0]))
 		fields = append(fields, fi)
 	}
 	return fields
 }
 
-func buildFieldInfo(name string, expr ast.Expr, importMap map[string]string) types.FieldInfo {
+func buildFieldInfo(name string, expr ast.Expr, importMap map[string]string, typeDefs map[string]ast.Expr) types.FieldInfo {
 	fi := types.FieldInfo{
 		Name:     name,
 		TypeExpr: typeExprString(expr),
 	}
-	resolveType(&fi, expr, importMap)
+	resolveType(&fi, expr, importMap, typeDefs)
 	return fi
 }
 
-func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string) {
+func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string, typeDefs map[string]ast.Expr) {
 	if fi.TypeExpr == "" {
 		fi.TypeExpr = typeExprString(expr)
 	}
@@ -229,7 +261,7 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 	case *ast.StarExpr:
 		fi.Category = types.TypePointer
 		fi.ElemType = &types.FieldInfo{TypeExpr: typeExprString(t.X)}
-		resolveType(fi.ElemType, t.X, importMap)
+		resolveType(fi.ElemType, t.X, importMap, typeDefs)
 		fi.ElemCategory = fi.ElemType.Category
 
 	case *ast.ArrayType:
@@ -246,18 +278,26 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 			}
 		}
 		fi.ElemType = &types.FieldInfo{TypeExpr: typeExprString(t.Elt)}
-		resolveType(fi.ElemType, t.Elt, importMap)
+		resolveType(fi.ElemType, t.Elt, importMap, typeDefs)
 		fi.ElemCategory = fi.ElemType.Category
 
 	case *ast.MapType:
 		fi.Category = types.TypeMap
 		fi.MapKeyType = &types.FieldInfo{TypeExpr: typeExprString(t.Key)}
-		resolveType(fi.MapKeyType, t.Key, importMap)
+		resolveType(fi.MapKeyType, t.Key, importMap, typeDefs)
 		fi.MapValueType = &types.FieldInfo{TypeExpr: typeExprString(t.Value)}
-		resolveType(fi.MapValueType, t.Value, importMap)
+		resolveType(fi.MapValueType, t.Value, importMap, typeDefs)
 
 	case *ast.StructType:
+		// Anonymous struct field type (e.g. `S struct{ N *int }`). It cannot
+		// carry a method, so the generator emits an inline field-wise copy.
 		fi.Category = types.TypeStruct
+		fi.HasDeepCopy = false
+		if t.Fields != nil {
+			for _, field := range t.Fields.List {
+				fi.AnonFields = append(fi.AnonFields, parseField(field, importMap, typeDefs)...)
+			}
+		}
 
 	case *ast.InterfaceType:
 		fi.Category = types.TypeInterface
@@ -269,8 +309,12 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 		if isBuiltinType(t.Name) {
 			fi.Category = types.TypeBasic
 		} else {
+			// Same-package named type. Keep Category=TypeStruct so the
+			// generator dispatches uniformly; record whether the named type
+			// has a generated deepcopy method.
 			fi.Category = types.TypeStruct
 			fi.TypeName = t.Name
+			fi.HasDeepCopy = namedTypeHasDeepCopy(t.Name, typeDefs)
 		}
 
 	case *ast.SelectorExpr:
@@ -286,8 +330,32 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 	case *ast.Ellipsis:
 		fi.Category = types.TypeSlice
 		fi.ElemType = &types.FieldInfo{}
-		resolveType(fi.ElemType, t.Elt, importMap)
+		resolveType(fi.ElemType, t.Elt, importMap, typeDefs)
 		fi.ElemCategory = fi.ElemType.Category
+	}
+}
+
+// namedTypeHasDeepCopy reports whether a same-package named type has a
+// generated deepcopy method. Structs and named slice/array/map types get
+// methods; named basic aliases (and aliases to pointer/chan/interface) do
+// not. Aliases to other named types are resolved transitively.
+func namedTypeHasDeepCopy(name string, typeDefs map[string]ast.Expr) bool {
+	expr, ok := typeDefs[name]
+	if !ok {
+		// Not a package-level type decl; assume a same-package struct, which
+		// always gets a method. Safe default.
+		return true
+	}
+	switch e := expr.(type) {
+	case *ast.StructType, *ast.ArrayType, *ast.MapType:
+		return true
+	case *ast.Ident:
+		if isBuiltinType(e.Name) {
+			return false
+		}
+		return namedTypeHasDeepCopy(e.Name, typeDefs)
+	default:
+		return false
 	}
 }
 

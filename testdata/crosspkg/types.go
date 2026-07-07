@@ -3,6 +3,7 @@ package crosspkg
 import (
 	"github.com/451008604/deepcopy-gen/testdata/external"
 	"github.com/451008604/deepcopy-gen/testdata/gamecore"
+	"net"
 )
 
 type Player struct {
@@ -69,9 +70,14 @@ type ExternalWithMapOfExternal struct {
 	LastActive map[string]*external.AccountInfo
 }
 
+type compensationHeap []external.GameState
 type NestedExternal struct {
 	external.GameState
 	MainCharacter gamecore.Character
+	heap          *compensationHeap
+	heap2         compensationHeap
+	compensationHeap
+	*net.TCPListener
 }
 
 type ExternalWithLocalSlice struct {

@@ -84,6 +84,10 @@ func (g *genState) assemble(methods []string) string {
 }
 
 func (g *genState) genDeepCopy(s types.StructInfo) string {
+	if s.Underlying != nil {
+		return g.genNamedDeepCopy(s)
+	}
+
 	var b strings.Builder
 
 	g.needsHelper = true
@@ -124,7 +128,13 @@ func needsDeepCopy(f types.FieldInfo) bool {
 		return true
 	}
 	switch f.Category {
-	case types.TypePointer, types.TypeSlice, types.TypeMap, types.TypeArray, types.TypeStruct:
+	case types.TypePointer, types.TypeSlice, types.TypeMap, types.TypeArray:
+		return true
+	case types.TypeStruct:
+		// Same-package named basic alias: shallow copy is correct, skip.
+		if f.PackageName == "" && !f.HasDeepCopy && len(f.AnonFields) == 0 {
+			return false
+		}
 		return true
 	default:
 		return false
@@ -137,8 +147,8 @@ func (g *genState) genFieldCopyVisited(dst, src string, f types.FieldInfo, struc
 			return ""
 		}
 		if f.Category == types.TypePointer {
-			if f.PackageName != "" {
-				g.imports[f.PackageName] = true
+			if f.ElemType.PackageName != "" {
+				// dc.CopyPtr does not reference the external package name.
 				return fmt.Sprintf("\t%s = dc.CopyPtr(v, %s)\n", dst, src)
 			}
 			return fmt.Sprintf("\t%s = %s.deepcopy(v)\n", dst, src)
@@ -158,6 +168,22 @@ func (g *genState) genFieldCopyVisited(dst, src string, f types.FieldInfo, struc
 		return g.genMapCopyVisited(dst, src, f)
 	case types.TypeArray:
 		return g.genArrayCopyVisited(dst, src, f)
+	case types.TypeStruct:
+		// Non-embedded struct value field.
+		if f.PackageName != "" {
+			// Cross-package struct value: deep-copy via exported DeepCopy.
+			// No import needed: *dc.CopyPtr(v, &in.X) does not reference the
+			// external package name directly.
+			return fmt.Sprintf("\t%s = *dc.CopyPtr(v, &%s)\n", dst, src)
+		}
+		if f.HasDeepCopy {
+			// Same-package named struct/composite with a generated method.
+			return fmt.Sprintf("\t%s = *%s.deepcopy(v)\n", dst, src)
+		}
+		if len(f.AnonFields) > 0 {
+			return g.genAnonStructCopy(dst, src, f.AnonFields)
+		}
+		return ""
 	default:
 		return ""
 	}
@@ -167,8 +193,21 @@ func (g *genState) genPointerCopyVisited(dst, src string, f types.FieldInfo) str
 	if f.ElemType.Category == types.TypePointer {
 		return fmt.Sprintf("\t%s = dc.CopyDoublePtr(v, %s)\n", dst, src)
 	}
-	if f.ElemType.Category == types.TypeStruct && f.ElemType.PackageName == "" {
-		return fmt.Sprintf("\t%s = %s.deepcopy(v)\n", dst, src)
+	if f.ElemType.Category == types.TypeStruct {
+		if f.ElemType.PackageName == "" && f.ElemType.HasDeepCopy {
+			return fmt.Sprintf("\t%s = %s.deepcopy(v)\n", dst, src)
+		}
+		// Cross-package struct, named basic alias, or anonymous struct
+		// pointer: fall back to dc.CopyPtr (shallow for basics, deep for
+		// cross-package via DeepCopy()). No import is needed: dc.CopyPtr does
+		// not reference the external package name.
+		return fmt.Sprintf("\t%s = dc.CopyPtr(v, %s)\n", dst, src)
+	}
+	if f.ElemType.Category == types.TypeSlice {
+		return g.genPointerToSliceCopy(dst, src, f)
+	}
+	if f.ElemType.Category == types.TypeMap {
+		return g.genPointerToMapCopy(dst, src, f)
 	}
 	return fmt.Sprintf("\t%s = dc.CopyPtr(v, %s)\n", dst, src)
 }
@@ -246,7 +285,6 @@ func (g *genState) genArrayCopyVisited(dst, src string, f types.FieldInfo) strin
 			return b.String()
 		}
 		if f.ElemType.PackageName != "" {
-			g.imports[f.ElemType.PackageName] = true
 			var b strings.Builder
 			b.WriteString(fmt.Sprintf("\tfor i := range %s {\n", src))
 			b.WriteString(fmt.Sprintf("\t\t%s[i] = *dc.CopyPtr(v, &%s[i])\n", dst, src))
@@ -271,16 +309,239 @@ func (g *genState) genArrayCopyVisited(dst, src string, f types.FieldInfo) strin
 
 func (g *genState) genMapCopyVisited(dst, src string, f types.FieldInfo) string {
 	switch f.MapValueType.Category {
-	case types.TypeBasic, types.TypeStruct:
+	case types.TypeBasic:
 		return fmt.Sprintf("\t%s = dc.CopyMap(v, %s)\n", dst, src)
-
+	case types.TypeStruct:
+		return g.genMapOfStructCopy(dst, src, f)
 	case types.TypePointer:
 		return fmt.Sprintf("\t%s = dc.CopyMapPtr(v, %s)\n", dst, src)
-
 	case types.TypeSlice:
 		return fmt.Sprintf("\t%s = dc.CopyMapSlice(v, %s)\n", dst, src)
-
 	default:
 		return fmt.Sprintf("\t%s = dc.CopyMap(v, %s)\n", dst, src)
 	}
+}
+
+// genNamedDeepCopy emits DeepCopy/deepcopy for a named composite type
+// (slice/array/map) such as `type compensationHeap []external.GameState`.
+func (g *genState) genNamedDeepCopy(s types.StructInfo) string {
+	g.needsHelper = true
+	u := *s.Underlying
+	g.recordNamedImports(u)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("// DeepCopy returns a deep copy of %s.\n", s.Name))
+	b.WriteString(fmt.Sprintf("func (in *%s) DeepCopy() *%s {\n", s.Name, s.Name))
+	b.WriteString("\tif in == nil {\n\t\treturn nil\n\t}\n")
+	b.WriteString(fmt.Sprintf("\treturn in.deepcopy(make(dc.Visited))\n"))
+	b.WriteString("}\n\n")
+
+	b.WriteString(fmt.Sprintf("func (in *%s) deepcopy(v dc.Visited) *%s {\n", s.Name, s.Name))
+	b.WriteString("\tif in == nil {\n\t\treturn nil\n\t}\n")
+	b.WriteString(fmt.Sprintf("\tif out, ok := v[in]; ok {\n\t\treturn out.(*%s)\n\t}\n", s.Name))
+	b.WriteString(fmt.Sprintf("\tout := new(%s)\n", s.Name))
+	b.WriteString("\tv[in] = out\n")
+	switch u.Category {
+	case types.TypeSlice:
+		b.WriteString(g.genNamedSliceBody(s.Name, u))
+	case types.TypeArray:
+		b.WriteString(g.genNamedArrayBody(s.Name, u))
+	case types.TypeMap:
+		b.WriteString(g.genNamedMapBody(s.Name, u))
+	}
+	b.WriteString("\treturn out\n}\n")
+	return b.String()
+}
+
+func (g *genState) recordNamedImports(u types.FieldInfo) {
+	// Named-type method bodies use make(<NamedType>, ...) plus dc.CopyPtr /
+	// .deepcopy calls; none reference an external package name literally, so
+	// no imports are recorded here.
+	_ = u
+}
+
+// genNamedSliceBody emits the element-wise copy body for a named slice type,
+// operating on *in / *out. Basic elements use copy(); struct/pointer elements
+// are deep-copied via dc.CopyPtr (which dispatches to deepcopy/DeepCopy).
+func (g *genState) genNamedSliceBody(typeName string, u types.FieldInfo) string {
+	var b strings.Builder
+	b.WriteString("\tif *in != nil {\n")
+	b.WriteString(fmt.Sprintf("\t\t*out = make(%s, len(*in))\n", typeName))
+	switch u.ElemCategory {
+	case types.TypeStruct:
+		if u.ElemType != nil && u.ElemType.PackageName != "" {
+			b.WriteString("\t\tfor i := range *in {\n")
+			b.WriteString("\t\t\t(*out)[i] = *dc.CopyPtr(v, &(*in)[i])\n")
+			b.WriteString("\t\t}\n")
+		} else {
+			b.WriteString("\t\tfor i := range *in {\n")
+			b.WriteString("\t\t\t(*out)[i] = *(*in)[i].deepcopy(v)\n")
+			b.WriteString("\t\t}\n")
+		}
+	case types.TypePointer:
+		b.WriteString("\t\tfor i := range *in {\n")
+		b.WriteString("\t\t\t(*out)[i] = dc.CopyPtr(v, (*in)[i])\n")
+		b.WriteString("\t\t}\n")
+	default:
+		b.WriteString("\t\tcopy(*out, *in)\n")
+	}
+	b.WriteString("\t}\n")
+	return b.String()
+}
+
+// genNamedArrayBody emits the copy body for a named array type `type Arr [N]T`
+// operating on *in / *out. Arrays are value types, so *out = *in copies all
+// element values; pointer/struct elements are then fixed up element-wise.
+func (g *genState) genNamedArrayBody(typeName string, u types.FieldInfo) string {
+	var b strings.Builder
+	b.WriteString("\t*out = *in\n")
+	switch u.ElemCategory {
+	case types.TypeStruct:
+		if u.ElemType != nil && u.ElemType.PackageName != "" {
+			b.WriteString("\tfor i := range *in {\n")
+			b.WriteString("\t\t(*out)[i] = *dc.CopyPtr(v, &(*in)[i])\n")
+			b.WriteString("\t}\n")
+		} else {
+			b.WriteString("\tfor i := range *in {\n")
+			b.WriteString("\t\t(*out)[i] = *(*in)[i].deepcopy(v)\n")
+			b.WriteString("\t}\n")
+		}
+	case types.TypePointer:
+		b.WriteString("\tfor i := range *in {\n")
+		b.WriteString("\t\t(*out)[i] = dc.CopyPtr(v, (*in)[i])\n")
+		b.WriteString("\t}\n")
+	}
+	return b.String()
+}
+
+// genNamedMapBody emits the copy body for a named map type `type Meta map[K]V`
+// operating on *in / *out.
+func (g *genState) genNamedMapBody(typeName string, u types.FieldInfo) string {
+	var b strings.Builder
+	b.WriteString("\tif *in != nil {\n")
+	b.WriteString(fmt.Sprintf("\t\t*out = make(%s, len(*in))\n", typeName))
+	b.WriteString("\t\tfor k, val := range *in {\n")
+	switch u.MapValueType.Category {
+	case types.TypeStruct:
+		if u.MapValueType.PackageName != "" {
+			b.WriteString("\t\t\t(*out)[k] = *dc.CopyPtr(v, &val)\n")
+		} else {
+			b.WriteString("\t\t\t(*out)[k] = *val.deepcopy(v)\n")
+		}
+	case types.TypePointer:
+		b.WriteString("\t\t\t(*out)[k] = dc.CopyPtr(v, val)\n")
+	default:
+		b.WriteString("\t\t\t(*out)[k] = val\n")
+	}
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t}\n")
+	return b.String()
+}
+
+// genPointerToSliceCopy emits a deep copy for a pointer-to-slice field
+// (`*[]T`): allocate a new slice and copy elements element-wise.
+func (g *genState) genPointerToSliceCopy(dst, src string, f types.FieldInfo) string {
+	slice := f.ElemType
+	elemExpr := slice.ElemType.TypeExpr
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+	b.WriteString(fmt.Sprintf("\t\t%s = new([]%s)\n", dst, elemExpr))
+	b.WriteString(fmt.Sprintf("\t\tif *%s != nil {\n", src))
+	switch slice.ElemCategory {
+	case types.TypeStruct:
+		if slice.ElemType.PackageName != "" {
+			g.imports[slice.ElemType.PackageName] = true
+			b.WriteString(fmt.Sprintf("\t\t\t*%s = make([]%s, len(*%s))\n", dst, elemExpr, src))
+			b.WriteString(fmt.Sprintf("\t\t\tfor i := range *%s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[i] = *dc.CopyPtr(v, &(*%s)[i])\n", dst, src))
+			b.WriteString("\t\t\t}\n")
+		} else {
+			b.WriteString(fmt.Sprintf("\t\t\t*%s = make([]%s, len(*%s))\n", dst, elemExpr, src))
+			b.WriteString(fmt.Sprintf("\t\t\tfor i := range *%s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[i] = *(*%s)[i].deepcopy(v)\n", dst, src))
+			b.WriteString("\t\t\t}\n")
+		}
+	case types.TypePointer:
+		if slice.ElemType.ElemType != nil && slice.ElemType.ElemType.PackageName != "" {
+			g.imports[slice.ElemType.ElemType.PackageName] = true
+		}
+		b.WriteString(fmt.Sprintf("\t\t\t*%s = make([]%s, len(*%s))\n", dst, elemExpr, src))
+		b.WriteString(fmt.Sprintf("\t\t\tfor i := range *%s {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[i] = dc.CopyPtr(v, (*%s)[i])\n", dst, src))
+		b.WriteString("\t\t\t}\n")
+	default:
+		b.WriteString(fmt.Sprintf("\t\t\t*%s = dc.CopySlice(*%s)\n", dst, src))
+	}
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t}\n")
+	return b.String()
+}
+
+// genPointerToMapCopy emits a deep copy for a pointer-to-map field (`*map[K]V`).
+func (g *genState) genPointerToMapCopy(dst, src string, f types.FieldInfo) string {
+	m := f.ElemType
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+	b.WriteString(fmt.Sprintf("\t\t%s = new(%s)\n", dst, m.TypeExpr))
+	b.WriteString(fmt.Sprintf("\t\tif *%s != nil {\n", src))
+	b.WriteString(fmt.Sprintf("\t\t\t*%s = make(%s, len(*%s))\n", dst, m.TypeExpr, src))
+	b.WriteString(fmt.Sprintf("\t\t\tfor k, val := range *%s {\n", src))
+	switch m.MapValueType.Category {
+	case types.TypeStruct:
+		if m.MapValueType.PackageName != "" {
+			g.imports[m.MapValueType.PackageName] = true
+			b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[k] = *dc.CopyPtr(v, &val)\n", dst))
+		} else {
+			b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[k] = *val.deepcopy(v)\n", dst))
+		}
+	case types.TypePointer:
+		if m.MapValueType.ElemType != nil && m.MapValueType.ElemType.PackageName != "" {
+			g.imports[m.MapValueType.ElemType.PackageName] = true
+		}
+		b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[k] = dc.CopyPtr(v, val)\n", dst))
+	default:
+		b.WriteString(fmt.Sprintf("\t\t\t\t(*%s)[k] = val\n", dst))
+	}
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t}\n")
+	return b.String()
+}
+
+// genMapOfStructCopy emits an inline deep copy for `map[K]Struct` value fields.
+// Map values are not addressable and dc.CopyMap cannot call a pointer-receiver
+// deepcopy on them, so a manual loop is required.
+func (g *genState) genMapOfStructCopy(dst, src string, f types.FieldInfo) string {
+	v := f.MapValueType
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+	b.WriteString(fmt.Sprintf("\t\t%s = make(%s, len(%s))\n", dst, f.TypeExpr, src))
+	b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
+	if v.PackageName != "" {
+		g.imports[v.PackageName] = true
+		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *dc.CopyPtr(v, &val)\n", dst))
+	} else {
+		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *val.deepcopy(v)\n", dst))
+	}
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t}\n")
+	return b.String()
+}
+
+// genAnonStructCopy emits an inline deep copy for an anonymous struct field
+// (`S struct{ ... }`): shallow-copy the struct value, then deep-copy each
+// reference field.
+func (g *genState) genAnonStructCopy(dst, src string, fields []types.FieldInfo) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("\t%s = %s\n", dst, src))
+	for _, f := range fields {
+		if !needsDeepCopy(f) {
+			continue
+		}
+		line := g.genFieldCopyVisited(dst+"."+f.Name, src+"."+f.Name, f, "")
+		if line != "" {
+			b.WriteString(line)
+		}
+	}
+	return b.String()
 }
