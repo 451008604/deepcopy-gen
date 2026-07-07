@@ -23,6 +23,7 @@ type WithMap struct {
 	Nested    map[string][]int
 	PtrMap    map[string]*bool
 	IntKeyMap map[int]string
+	MailIDs   map[int32]struct{}
 }
 
 // WithArray has fixed-size array fields.

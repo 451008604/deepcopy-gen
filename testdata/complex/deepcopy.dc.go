@@ -84,6 +84,12 @@ func (in *WithMap) deepcopy(v dc.Visited) *WithMap {
 	out.Nested = dc.CopyMapSlice(v, in.Nested)
 	out.PtrMap = dc.CopyMapPtr(v, in.PtrMap)
 	out.IntKeyMap = dc.CopyMap(v, in.IntKeyMap)
+	if in.MailIDs != nil {
+		out.MailIDs = make(map[int32]struct{}, len(in.MailIDs))
+		for k, val := range in.MailIDs {
+			out.MailIDs[k] = val
+		}
+	}
 	return out
 }
 

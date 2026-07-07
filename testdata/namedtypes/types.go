@@ -91,3 +91,19 @@ type HasStructValue struct {
 type HasCrossValue struct {
 	Owner external.AccountInfo
 }
+
+// --- Anonymous struct as MAP value: empty struct (set pattern) and
+// non-empty anonymous struct (temp-var field-wise copy). ---
+
+type Sets struct {
+	Members map[int32]struct{}          // empty struct set
+	Tagged  map[string]struct{ N *int } // non-empty anonymous struct value
+}
+
+// --- Slices of named basic alias and empty struct (were compile errors via
+//     .deepcopy on method-less types). ---
+
+type Aliases struct {
+	Scores []Score    // named basic alias slice
+	Empty  []struct{} // empty struct slice
+}

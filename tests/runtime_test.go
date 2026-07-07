@@ -144,3 +144,40 @@ func TestHasCrossValue_DeepCopy(t *testing.T) {
 		t.Error("cross-pkg struct value field leaked")
 	}
 }
+
+func TestSets_DeepCopy(t *testing.T) {
+	n := 7
+	in := &namedtypes.Sets{
+		Members: map[int32]struct{}{1: {}, 2: {}},
+		Tagged:  map[string]struct{ N *int }{"k": {N: &n}},
+	}
+	cp := in.DeepCopy()
+
+	delete(cp.Members, 1)
+	*cp.Tagged["k"].N = 999
+
+	if _, ok := in.Members[1]; !ok {
+		t.Error("empty-struct map: delete leaked to original")
+	}
+	if *in.Tagged["k"].N == 999 {
+		t.Error("non-empty anon struct map value: pointer leaked")
+	}
+}
+
+func TestAliases_DeepCopy(t *testing.T) {
+	in := &namedtypes.Aliases{
+		Scores: []namedtypes.Score{1, 2, 3},
+		Empty:  []struct{}{{}, {}, {}},
+	}
+	cp := in.DeepCopy()
+
+	cp.Scores[0] = 999
+	cp.Empty = cp.Empty[:1]
+
+	if in.Scores[0] == 999 {
+		t.Error("[]Score (named basic alias slice) leaked")
+	}
+	if len(in.Empty) != 3 {
+		t.Error("[]struct{} slice header leaked")
+	}
+}

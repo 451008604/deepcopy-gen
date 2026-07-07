@@ -349,7 +349,7 @@ func (in *NestedExternal) deepcopy(v dc.Visited) *NestedExternal {
 	out.heap = in.heap.deepcopy(v)
 	out.heap2 = *in.heap2.deepcopy(v)
 	out.compensationHeap = *in.compensationHeap.deepcopy(v)
-	out.TCPListener = *dc.CopyPtr(v, &in.TCPListener)
+	out.TCPListener = dc.CopyPtr(v, in.TCPListener)
 	return out
 }
 

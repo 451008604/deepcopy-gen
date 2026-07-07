@@ -752,6 +752,35 @@ func TestGenerate_NamedTypes_MethodsForNamedComposites(t *testing.T) {
 	assertNotContains(t, code, "func (in *Score) deepcopy")
 }
 
+func TestGenerate_NamedTypes_AnonStructMapValue(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Empty anonymous struct map value (set pattern): shallow copy.
+	assertContains(t, code, "out.Members = make(map[int32]struct{}, len(in.Members))")
+	assertContains(t, code, "out.Members[k] = val")
+	// Non-empty anonymous struct map value: temp var + field-wise deep copy.
+	assertContains(t, code, "out.Tagged = make(map[string]struct{N *int}, len(in.Tagged))")
+	assertContains(t, code, "cp := val")
+	assertContains(t, code, "cp.N = dc.CopyPtr(v, val.N)")
+	assertContains(t, code, "out.Tagged[k] = cp")
+}
+
+func TestGenerate_NamedTypes_BasicAliasAndEmptyStructSlices(t *testing.T) {
+	pkg := scanPackage(t, "namedtypes")
+	code, err := Generate(pkg)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	// Named basic alias slice and empty struct slice: dc.CopySlice (no
+	// .deepcopy call on method-less element types).
+	assertContains(t, code, "out.Scores = dc.CopySlice(in.Scores)")
+	assertContains(t, code, "out.Empty = dc.CopySlice(in.Empty)")
+	assertNotContains(t, code, "in.Scores[i].deepcopy")
+}
+
 func assertValidGo(t *testing.T, code string) {
 	t.Helper()
 	fset := token.NewFileSet()

@@ -375,3 +375,61 @@ func (in *HasCrossValue) deepcopy(v dc.Visited) *HasCrossValue {
 	out.Owner = *dc.CopyPtr(v, &in.Owner)
 	return out
 }
+
+// DeepCopy returns a deep copy of Sets.
+func (in *Sets) DeepCopy() *Sets {
+	if in == nil {
+		return nil
+	}
+	return in.deepcopy(make(dc.Visited))
+}
+
+func (in *Sets) deepcopy(v dc.Visited) *Sets {
+	if in == nil {
+		return nil
+	}
+	if out, ok := v[in]; ok {
+		return out.(*Sets)
+	}
+	out := new(Sets)
+	v[in] = out
+	*out = *in
+	if in.Members != nil {
+		out.Members = make(map[int32]struct{}, len(in.Members))
+		for k, val := range in.Members {
+			out.Members[k] = val
+		}
+	}
+	if in.Tagged != nil {
+		out.Tagged = make(map[string]struct{ N *int }, len(in.Tagged))
+		for k, val := range in.Tagged {
+			cp := val
+			cp.N = dc.CopyPtr(v, val.N)
+			out.Tagged[k] = cp
+		}
+	}
+	return out
+}
+
+// DeepCopy returns a deep copy of Aliases.
+func (in *Aliases) DeepCopy() *Aliases {
+	if in == nil {
+		return nil
+	}
+	return in.deepcopy(make(dc.Visited))
+}
+
+func (in *Aliases) deepcopy(v dc.Visited) *Aliases {
+	if in == nil {
+		return nil
+	}
+	if out, ok := v[in]; ok {
+		return out.(*Aliases)
+	}
+	out := new(Aliases)
+	v[in] = out
+	*out = *in
+	out.Scores = dc.CopySlice(in.Scores)
+	out.Empty = dc.CopySlice(in.Empty)
+	return out
+}

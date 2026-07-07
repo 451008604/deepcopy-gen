@@ -386,6 +386,8 @@ func typeExprString(expr ast.Expr) string {
 		return "map[" + typeExprString(t.Key) + "]" + typeExprString(t.Value)
 	case *ast.SelectorExpr:
 		return typeExprString(t.X) + "." + t.Sel.Name
+	case *ast.StructType:
+		return structTypeString(t)
 	case *ast.InterfaceType:
 		return "interface{}"
 	case *ast.BasicLit:
@@ -397,6 +399,36 @@ func typeExprString(expr ast.Expr) string {
 	default:
 		return "unknown"
 	}
+}
+
+// structTypeString renders an anonymous struct type as a literal so it can be
+// used in generated make/new expressions, e.g. struct{} or struct{ N *int }.
+func structTypeString(t *ast.StructType) string {
+	if t.Fields == nil || len(t.Fields.List) == 0 {
+		return "struct{}"
+	}
+	var b strings.Builder
+	b.WriteString("struct{")
+	for i, field := range t.Fields.List {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		ft := typeExprString(field.Type)
+		if len(field.Names) == 0 {
+			// embedded field
+			b.WriteString(ft)
+		} else {
+			for j, n := range field.Names {
+				if j > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(n.Name)
+			}
+			b.WriteString(" " + ft)
+		}
+	}
+	b.WriteString("}")
+	return b.String()
 }
 
 func embeddedFieldName(expr ast.Expr) string {

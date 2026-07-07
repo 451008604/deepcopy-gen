@@ -230,14 +230,20 @@ func (g *genState) genSliceCopyVisited(dst, src string, f types.FieldInfo) strin
 			b.WriteString("\t}\n")
 			return b.String()
 		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
-		b.WriteString(fmt.Sprintf("\t\t%s = make([]%s, len(%s))\n", dst, typeName, src))
-		b.WriteString(fmt.Sprintf("\t\tfor i := range %s {\n", src))
-		b.WriteString(fmt.Sprintf("\t\t\t%s[i] = *%s[i].deepcopy(v)\n", dst, src))
-		b.WriteString("\t\t}\n")
-		b.WriteString("\t}\n")
-		return b.String()
+		if f.ElemType.HasDeepCopy {
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t%s = make([]%s, len(%s))\n", dst, typeName, src))
+			b.WriteString(fmt.Sprintf("\t\tfor i := range %s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t%s[i] = *%s[i].deepcopy(v)\n", dst, src))
+			b.WriteString("\t\t}\n")
+			b.WriteString("\t}\n")
+			return b.String()
+		}
+		// Named basic alias or anonymous struct without a method: element
+		// values are copied by value (shallow is correct for basics and empty
+		// structs; non-empty anonymous structs are a known shallow limitation).
+		return fmt.Sprintf("\t%s = dc.CopySlice(%s)\n", dst, src)
 
 	case types.TypePointer:
 		return fmt.Sprintf("\t%s = dc.CopySlicePtr(v, %s)\n", dst, src)
@@ -510,20 +516,58 @@ func (g *genState) genPointerToMapCopy(dst, src string, f types.FieldInfo) strin
 
 // genMapOfStructCopy emits an inline deep copy for `map[K]Struct` value fields.
 // Map values are not addressable and dc.CopyMap cannot call a pointer-receiver
-// deepcopy on them, so a manual loop is required.
+// deepcopy on them, so a manual loop is required. Anonymous struct values
+// (which have no method) are copied via a temp variable + field-wise copy.
 func (g *genState) genMapOfStructCopy(dst, src string, f types.FieldInfo) string {
 	v := f.MapValueType
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("\tif %s != nil {\n", src))
 	b.WriteString(fmt.Sprintf("\t\t%s = make(%s, len(%s))\n", dst, f.TypeExpr, src))
-	b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
-	if v.PackageName != "" {
-		g.imports[v.PackageName] = true
-		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *dc.CopyPtr(v, &val)\n", dst))
-	} else {
+	switch {
+	case v.HasDeepCopy:
+		// Named same-package struct: call its generated method (threads v).
+		b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
 		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *val.deepcopy(v)\n", dst))
+		b.WriteString("\t\t}\n")
+	case v.PackageName != "":
+		// Cross-package struct: deep-copy via exported DeepCopy.
+		// make(map[K]ext.X, ...) references the package name literally.
+		g.imports[v.PackageName] = true
+		b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = *dc.CopyPtr(v, &val)\n", dst))
+		b.WriteString("\t\t}\n")
+	case len(v.AnonFields) > 0:
+		// Anonymous struct value. If any field needs deep copy, use a temp
+		// variable; otherwise a shallow copy is correct (e.g. struct{}).
+		needCopy := false
+		for _, af := range v.AnonFields {
+			if needsDeepCopy(af) {
+				needCopy = true
+				break
+			}
+		}
+		if !needCopy {
+			b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
+			b.WriteString(fmt.Sprintf("\t\t\t%s[k] = val\n", dst))
+			b.WriteString("\t\t}\n")
+		} else {
+			b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
+			b.WriteString("\t\t\tcp := val\n")
+			for _, af := range v.AnonFields {
+				if !needsDeepCopy(af) {
+					continue
+				}
+				b.WriteString(g.genFieldCopyVisited("cp."+af.Name, "val."+af.Name, af, ""))
+			}
+			b.WriteString(fmt.Sprintf("\t\t\t%s[k] = cp\n", dst))
+			b.WriteString("\t\t}\n")
+		}
+	default:
+		// Named basic alias value: shallow copy is correct.
+		b.WriteString(fmt.Sprintf("\t\tfor k, val := range %s {\n", src))
+		b.WriteString(fmt.Sprintf("\t\t\t%s[k] = val\n", dst))
+		b.WriteString("\t\t}\n")
 	}
-	b.WriteString("\t\t}\n")
 	b.WriteString("\t}\n")
 	return b.String()
 }
