@@ -55,7 +55,7 @@
 ```sh
 go test ./... -count=1 -cover
 go test ./generator -run TestSyntax -count=1
-go run . -dir testdata
+go run . testdata
 go build ./...
 go test ./tests ./generator -run '^$' -bench 'Benchmark(DeepCopy|Generate)' -benchmem -count=5
 ```

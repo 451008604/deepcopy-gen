@@ -12,8 +12,8 @@ Unit tests live beside their implementations in `*_test.go`. `tests/runtime_test
 - `go test ./...` — run unit, CLI, fixture compilation, and runtime tests.
 - `go test ./... -cover` — inspect current coverage; no enforced percentage threshold is configured.
 - `go test ./generator -run TestGenerate -count=1` — run focused generator tests without cached results.
-- `go run . -dir ./testdata -dry-run` — preview fixture output.
-- `go run . -dir ./testdata` — regenerate checked-in fixture methods.
+- `go run . -dry-run ./testdata` — preview fixture output.
+- `go run . ./testdata` — regenerate checked-in fixture methods.
 
 Place flags before positional arguments. If the default Go cache is unavailable, prefix commands with `GOCACHE=/private/tmp/deepcopy-gen-gocache`.
 

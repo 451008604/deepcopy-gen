@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ import (
 func TestRun_DryRun(t *testing.T) {
 	dir := "testdata"
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", dir, "-dry-run"}, &stdout, &stderr)
+	err := run([]string{"-dry-run", dir}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -27,27 +28,12 @@ func TestRun_DryRun(t *testing.T) {
 	}
 }
 
-func TestRun_Verbose(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "types.go"), []byte("package test\ntype Foo struct { X int }\n"), 0644)
-
-	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", dir, "-v"}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("run failed: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "wrote") {
-		t.Error("expected verbose output to contain 'wrote'")
-	}
-	os.Remove(filepath.Join(dir, "deepcopy.dc.go"))
-}
-
 func TestRun_WritesFiles(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "types.go"), []byte("package test\ntype Foo struct { X int }\n"), 0644)
 
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", dir}, &stdout, &stderr)
+	err := run([]string{dir}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -64,7 +50,7 @@ func TestRun_WritesFiles(t *testing.T) {
 
 func TestRun_NonExistentDir(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", "/nonexistent/path/xyz"}, &stdout, &stderr)
+	err := run([]string{"/nonexistent/path/xyz"}, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error for non-existent directory")
 	}
@@ -76,7 +62,7 @@ func TestRun_FileNotDir(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", f.Name()}, &stdout, &stderr)
+	err := run([]string{f.Name()}, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error for file instead of directory")
 	}
@@ -88,7 +74,7 @@ func TestRun_FileNotDir(t *testing.T) {
 func TestRun_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", dir, "-v"}, &stdout, &stderr)
+	err := run([]string{dir}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -104,7 +90,7 @@ func TestRun_InvalidFlag(t *testing.T) {
 
 func TestRun_MultiplePackages(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-dir", "testdata", "-dry-run"}, &stdout, &stderr)
+	err := run([]string{"-dry-run", "testdata"}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -182,14 +168,14 @@ func TestRun_PositionalArgumentAndStaleCleanup(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if err := run([]string{"-v", dir}, &stdout, &stderr); err != nil {
+	if err := run([]string{dir}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatal("stale output still exists")
 	}
-	if !strings.Contains(stdout.String(), "removed stale") {
-		t.Fatal("missing stale cleanup message")
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatal("normal generation should be silent")
 	}
 	generated, err := os.ReadFile(filepath.Join(dir, "deepcopy.dc.go"))
 	if err != nil {
@@ -225,7 +211,88 @@ func TestRun_InvalidSourcePreservesExistingOutput(t *testing.T) {
 
 func TestRun_FlagsWithoutDirectory(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := run([]string{"-v"}, &stdout, &stderr); err == nil {
+	if err := run([]string{"-dry-run"}, &stdout, &stderr); err == nil {
 		t.Fatal("missing directory accepted")
+	}
+}
+
+func TestRun_InvalidArgumentsPreserveOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "deepcopy.dc.go")
+	for _, args := range [][]string{
+		{"-dir", dir}, {"-v", dir}, {dir, "-dir", dir}, {dir, "-v"},
+		{dir, "-dry-run"}, {dir, dir}, {dir, "-version"},
+		{"-version", dir}, {"-version", "-dry-run"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			if err := os.WriteFile(path, []byte("existing output"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if err := run(args, &stdout, &stderr); err == nil {
+				t.Fatal("invalid arguments accepted")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "existing output" {
+				t.Fatal("invalid arguments changed output")
+			}
+			if stdout.Len() != 0 {
+				t.Fatal("invalid arguments produced output")
+			}
+		})
+	}
+}
+
+func TestRun_Version(t *testing.T) {
+	old := version
+	version = "v1.2.3-test"
+	t.Cleanup(func() { version = old })
+	for _, flag := range []string{"-version", "--version"} {
+		var stdout, stderr bytes.Buffer
+		if err := run([]string{flag}, &stdout, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		if stdout.String() != "deepcopy-gen v1.2.3-test\n" || stderr.Len() != 0 {
+			t.Fatalf("unexpected version output: stdout=%q stderr=%q", &stdout, &stderr)
+		}
+	}
+}
+
+func TestVersionString_BuildMetadata(t *testing.T) {
+	old := version
+	version = ""
+	t.Cleanup(func() { version = old })
+	for _, tc := range []struct {
+		name string
+		info *debug.BuildInfo
+		want string
+	}{
+		{"unavailable", nil, "dev"},
+		{"empty", &debug.BuildInfo{}, "dev"},
+		{"release", &debug.BuildInfo{Main: debug.Module{Version: "v0.1.8"}}, "v0.1.8"},
+		{"pseudo", &debug.BuildInfo{Main: debug.Module{Version: "v0.1.9-0.20260910000000-abcdefabcdef"}}, "v0.1.9-0.20260910000000-abcdefabcdef"},
+		{"local", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "dev"},
+		{"revision", &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abcdef"}}}, "dev (abcdef)"},
+		{"dirty", &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.modified", Value: "true"}, {Key: "vcs.revision", Value: "abcdef"}}}, "dev (abcdef-dirty)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := versionString(tc.info); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	version = "v2.0.0"
+	if got := versionString(&debug.BuildInfo{Main: debug.Module{Version: "v0.1.8"}}); got != version {
+		t.Fatalf("build override ignored: %q", got)
+	}
+}
+
+func TestRun_Help(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"-h"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "-version") || !strings.Contains(stderr.String(), "-dry-run ./models") {
+		t.Fatal("help missing current CLI usage")
 	}
 }
