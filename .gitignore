@@ -12,3 +12,4 @@ go.work.sum
 *.swp
 *.swo
 *~
+.codegraph
