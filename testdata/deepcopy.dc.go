@@ -5,11 +5,17 @@ package testdata
 import (
 	dc "github.com/451008604/deepcopy-gen/deepcopy"
 	external "github.com/451008604/deepcopy-gen/testdata/external"
+	maps "maps"
 )
 
 // DeepCopy returns a deep copy of Point.
 func (in *Point) DeepCopy() *Point {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Point)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -35,7 +41,12 @@ func (in *Point) deepcopy(v dc.Visited) *Point {
 
 // DeepCopy returns a deep copy of Person.
 func (in *Person) DeepCopy() *Person {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Person)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -61,7 +72,12 @@ func (in *Person) deepcopy(v dc.Visited) *Person {
 
 // DeepCopy returns a deep copy of Config.
 func (in *Config) DeepCopy() *Config {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Config)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -151,7 +167,15 @@ func (in *WithSlice) deepcopy(v dc.Visited) *WithSlice {
 	*out = *in
 	out.Names = dc.CopySlice(in.Names)
 	out.Numbers = dc.CopySlice(in.Numbers)
-	out.Matrix = dc.CopySliceSlice(v, in.Matrix)
+	if in.Matrix != nil {
+		out.Matrix = make([][]float64, len(in.Matrix))
+		for i := range in.Matrix {
+			out.Matrix[i] = in.Matrix[i]
+			out.Matrix[i] = dc.CopySlice(in.Matrix[i])
+		}
+	} else {
+		out.Matrix = nil
+	}
 	out.Ptrs = dc.CopySlicePtr(v, in.Ptrs)
 	return out
 }
@@ -179,11 +203,20 @@ func (in *WithMap) deepcopy(v dc.Visited) *WithMap {
 	out := new(WithMap)
 	v[in] = out
 	*out = *in
-	out.Labels = dc.CopyMap(v, in.Labels)
-	out.Scores = dc.CopyMap(v, in.Scores)
-	out.Nested = dc.CopyMapSlice(v, in.Nested)
+	out.Labels = maps.Clone(in.Labels)
+	out.Scores = maps.Clone(in.Scores)
+	if in.Nested != nil {
+		out.Nested = make(map[string][]int, len(in.Nested))
+		for k, val := range in.Nested {
+			cp := val
+			cp = dc.CopySlice(val)
+			out.Nested[k] = cp
+		}
+	} else {
+		out.Nested = nil
+	}
 	out.PtrMap = dc.CopyMapPtr(v, in.PtrMap)
-	out.IntKeyMap = dc.CopyMap(v, in.IntKeyMap)
+	out.IntKeyMap = maps.Clone(in.IntKeyMap)
 	if in.MailIDs != nil {
 		out.MailIDs = make(map[int32]struct{}, len(in.MailIDs))
 		for k, val := range in.MailIDs {
@@ -197,7 +230,12 @@ func (in *WithMap) deepcopy(v dc.Visited) *WithMap {
 
 // DeepCopy returns a deep copy of WithArray.
 func (in *WithArray) DeepCopy() *WithArray {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(WithArray)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -246,14 +284,19 @@ func (in *Mixed) deepcopy(v dc.Visited) *Mixed {
 	*out = *in
 	out.Name = dc.CopyPtr(v, in.Name)
 	out.Tags = dc.CopySlice(in.Tags)
-	out.Metadata = dc.CopyMap(v, in.Metadata)
+	out.Metadata = maps.Clone(in.Metadata)
 	out.Scores = dc.CopySlicePtr(v, in.Scores)
 	return out
 }
 
 // DeepCopy returns a deep copy of Address.
 func (in *Address) DeepCopy() *Address {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Address)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -304,7 +347,7 @@ func (in *Employee) deepcopy(v dc.Visited) *Employee {
 	out.WorkAddr = in.WorkAddr.deepcopy(v)
 	out.Emails = dc.CopySlice(in.Emails)
 	out.Manager = in.Manager.deepcopy(v)
-	out.Tags = dc.CopyMap(v, in.Tags)
+	out.Tags = maps.Clone(in.Tags)
 	return out
 }
 
@@ -342,7 +385,7 @@ func (in *Department) deepcopy(v dc.Visited) *Department {
 		out.Members = nil
 	}
 	out.Locations = dc.CopySlicePtr(v, in.Locations)
-	out.Budget = dc.CopyMap(v, in.Budget)
+	out.Budget = maps.Clone(in.Budget)
 	return out
 }
 
@@ -377,7 +420,12 @@ func (in *Node) deepcopy(v dc.Visited) *Node {
 
 // DeepCopy returns a deep copy of Empty.
 func (in *Empty) DeepCopy() *Empty {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Empty)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -403,7 +451,12 @@ func (in *Empty) deepcopy(v dc.Visited) *Empty {
 
 // DeepCopy returns a deep copy of Marker.
 func (in *Marker) DeepCopy() *Marker {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Marker)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -429,7 +482,12 @@ func (in *Marker) deepcopy(v dc.Visited) *Marker {
 
 // DeepCopy returns a deep copy of Base.
 func (in *Base) DeepCopy() *Base {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Base)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -455,7 +513,12 @@ func (in *Base) deepcopy(v dc.Visited) *Base {
 
 // DeepCopy returns a deep copy of Timestamped.
 func (in *Timestamped) DeepCopy() *Timestamped {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Timestamped)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -564,7 +627,12 @@ func (in *Event) deepcopy(v dc.Visited) *Event {
 
 // DeepCopy returns a deep copy of EdgeInterface.
 func (in *EdgeInterface) DeepCopy() *EdgeInterface {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(EdgeInterface)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -590,7 +658,12 @@ func (in *EdgeInterface) deepcopy(v dc.Visited) *EdgeInterface {
 
 // DeepCopy returns a deep copy of WithChannel.
 func (in *WithChannel) DeepCopy() *WithChannel {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(WithChannel)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -616,7 +689,12 @@ func (in *WithChannel) deepcopy(v dc.Visited) *WithChannel {
 
 // DeepCopy returns a deep copy of withUnexported.
 func (in *withUnexported) DeepCopy() *withUnexported {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(withUnexported)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -642,7 +720,12 @@ func (in *withUnexported) deepcopy(v dc.Visited) *withUnexported {
 
 // DeepCopy returns a deep copy of MultiName.
 func (in *MultiName) DeepCopy() *MultiName {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(MultiName)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -719,7 +802,15 @@ func (in *SliceOfMaps) deepcopy(v dc.Visited) *SliceOfMaps {
 	out := new(SliceOfMaps)
 	v[in] = out
 	*out = *in
-	out.Maps = dc.CopySliceMap[string, int](v, in.Maps)
+	if in.Maps != nil {
+		out.Maps = make([]map[string]int, len(in.Maps))
+		for i := range in.Maps {
+			out.Maps[i] = in.Maps[i]
+			out.Maps[i] = maps.Clone(in.Maps[i])
+		}
+	} else {
+		out.Maps = nil
+	}
 	return out
 }
 
@@ -835,7 +926,12 @@ func (in *TreeWithMap) deepcopy(v dc.Visited) *TreeWithMap {
 
 // DeepCopy returns a deep copy of WithInterface.
 func (in *WithInterface) DeepCopy() *WithInterface {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(WithInterface)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -1029,7 +1125,15 @@ func (in *GameSession) deepcopy(v dc.Visited) *GameSession {
 	*out = *in
 	out.Player = in.Player.deepcopy(v)
 	out.Team = in.Team.deepcopy(v)
-	out.History = dc.CopySliceMap[string, int](v, in.History)
+	if in.History != nil {
+		out.History = make([]map[string]int, len(in.History))
+		for i := range in.History {
+			out.History[i] = in.History[i]
+			out.History[i] = maps.Clone(in.History[i])
+		}
+	} else {
+		out.History = nil
+	}
 	return out
 }
 
@@ -1419,7 +1523,12 @@ func (in *ExternalWithLocalSlice) deepcopy(v dc.Visited) *ExternalWithLocalSlice
 
 // DeepCopy returns a deep copy of Matrix.
 func (in *Matrix) DeepCopy() *Matrix {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Matrix)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -1466,7 +1575,7 @@ func (in *Inventory) deepcopy(v dc.Visited) *Inventory {
 	out := new(Inventory)
 	v[in] = out
 	*out = *in
-	(*out) = dc.CopyMap(v, (*in))
+	(*out) = maps.Clone((*in))
 	return out
 }
 
@@ -1549,7 +1658,7 @@ func (in *Meta) deepcopy(v dc.Visited) *Meta {
 	out := new(Meta)
 	v[in] = out
 	*out = *in
-	(*out) = dc.CopyMap(v, (*in))
+	(*out) = maps.Clone((*in))
 	return out
 }
 
@@ -1666,7 +1775,7 @@ func (in *PtrToComposite) deepcopy(v dc.Visited) *PtrToComposite {
 			out.M = new(map[string]int)
 			v[in.M] = out.M
 			*out.M = *in.M
-			(*out.M) = dc.CopyMap(v, (*in.M))
+			(*out.M) = maps.Clone((*in.M))
 		}
 	} else {
 		out.M = nil

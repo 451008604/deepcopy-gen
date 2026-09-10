@@ -8,7 +8,12 @@ import (
 
 // DeepCopy returns a deep copy of Foo.
 func (in *Foo) DeepCopy() *Foo {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Foo)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -34,7 +39,12 @@ func (in *Foo) deepcopy(v dc.Visited) *Foo {
 
 // DeepCopy returns a deep copy of Bar.
 func (in *Bar) DeepCopy() *Bar {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(Bar)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.

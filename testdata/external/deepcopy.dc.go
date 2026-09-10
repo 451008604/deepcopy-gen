@@ -4,11 +4,17 @@ package external
 
 import (
 	dc "github.com/451008604/deepcopy-gen/deepcopy"
+	maps "maps"
 )
 
 // DeepCopy returns a deep copy of AccountInfo.
 func (in *AccountInfo) DeepCopy() *AccountInfo {
-	return in.deepcopy(make(dc.Visited))
+	if in == nil {
+		return nil
+	}
+	out := new(AccountInfo)
+	*out = *in
+	return out
 }
 
 // DeepCopyWithVisited shares pointer tracking across generated packages.
@@ -56,7 +62,7 @@ func (in *AccountExtra) deepcopy(v dc.Visited) *AccountExtra {
 	v[in] = out
 	*out = *in
 	out.Tags = dc.CopySlice(in.Tags)
-	out.Metadata = dc.CopyMap(v, in.Metadata)
+	out.Metadata = maps.Clone(in.Metadata)
 	return out
 }
 

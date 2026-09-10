@@ -17,9 +17,10 @@
 | 泛型结构体、容器、实例化、泛型嵌入 | 生成带类型参数的接收者，支持本地泛型实例化后的新类型定义 |
 | 函数、可变参数函数、单向 channel、接口方法集 | 保留完整类型表达式；按下述运行时边界复制 |
 | 导入别名、不同文件使用同名别名 | 统一生成文件中的导入名称；收集嵌套表达式实际使用的依赖 |
+| 包声明与生成名称冲突 | 局部变量、helper 导入和重命名后的类型参数避让包声明及导入名称 |
 | 括号类型表达式 | 保留表达式并解析内部类型 |
 
-扫描会排除 `_test.go`、`.dc.go`、隐藏目录、`vendor` 及当前默认构建环境不启用的文件。按目标 GOOS/GOARCH 环境重新生成；目前没有自定义 build tags 参数，也不会给单个输出自动合成跨平台构建约束。
+扫描会排除 `.dc.go`、隐藏目录、`vendor` 及当前默认构建环境不启用的文件。同包 `_test.go` 只收集声明名称以避让导入，不参与类型解析和方法生成；外部测试包不参与名称避让。按目标 GOOS/GOARCH 环境重新生成；目前没有自定义 build tags 参数，也不会给单个输出自动合成跨平台构建约束。
 
 ## 深拷贝边界
 
@@ -37,18 +38,26 @@
 
 该扫描器不是完整的 Go 类型检查器；非法声明、已有同名方法或字段与生成方法冲突等问题仍需由编译验证发现。
 
+## 复制与生成优化
+
+内置基础类型的 map 使用 `maps.Clone`；二维切片、切片内的 map 和 map 内的切片按层复制容器，避免为基础元素逐个检查复制接口。命名基础类型（包括泛型实例化及其别名）仍保留原有 helper 中的自定义方法分派。
+
+纯值对象的独立 `DeepCopy()` 直接分配并赋值；`DeepCopyWithVisited` 和内部递归入口继续记录指针，保留共享引用。生成过程中复用已解析的类型表达式并预分配输出缓冲；CLI 直接使用生成器格式化验证后的结果。
+
 ## 回归测试与验证
 
 - `scanner/syntax_test.go`：类型分类、泛型元数据、跨文件环、构建过滤和拒绝输入。
 - `generator/syntax_test.go`：创建临时 Go 1.21 模块，生成代码后执行 `go test`，验证语法能编译和复制结果独立。
 - `deepcopy/helpers_test.go`：共享指针、nil map 值、复制方法分派和容器 helper。
 - `main_test.go`：位置参数、dry-run、过期输出清理和扫描失败时保留原输出。
+- `tests/benchmark_test.go`、`generator/benchmark_test.go`：实际生成方法的纯值、1024 项 map、32×32 二维切片基准，以及预扫描后的生成基准；均记录分配量。
 
 ```sh
 go test ./... -count=1 -cover
 go test ./generator -run TestSyntax -count=1
 go run . -dir testdata
 go build ./...
+go test ./tests ./generator -run '^$' -bench 'Benchmark(DeepCopy|Generate)' -benchmem -count=5
 ```
 
 覆盖率用于定位空白，不能替代生成结果的编译测试和修改副本后的原值检查。

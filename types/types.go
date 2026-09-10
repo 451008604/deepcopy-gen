@@ -30,7 +30,7 @@ type FieldInfo struct {
 	MapKeyType   *FieldInfo
 	MapValueType *FieldInfo
 	PackageName  string
-	TypeName     string
+	TypeName     string // 保留命名类型身份；内置基础类型及其直接别名为空。
 
 	// HasDeepCopy indicates that a same-package named type referenced by this
 	// field has a generated deepcopy method (struct/slice/map/array). Named
@@ -57,8 +57,9 @@ type StructInfo struct {
 
 // PackageInfo groups all structs found in a single Go package directory.
 type PackageInfo struct {
-	Name    string
-	Dir     string
-	Structs []StructInfo
-	GoFiles []string
+	Name        string
+	Identifiers []string // 包级声明和导入名称，供生成器避让。
+	Dir         string
+	Structs     []StructInfo
+	GoFiles     []string
 }

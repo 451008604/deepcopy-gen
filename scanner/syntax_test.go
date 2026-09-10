@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/451008604/deepcopy-gen/types"
@@ -222,5 +223,57 @@ func TestScanDir_ImportAliasesAcrossFiles(t *testing.T) {
 	when := findField(findStruct(pkg.Structs, "B").Fields, "Time")
 	if when.TypeExpr != "*shared.Time" {
 		t.Fatalf("one import path has multiple aliases: %s", when.TypeExpr)
+	}
+}
+
+func TestScanDir_GenericScalarIdentity(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "types.go", `package fixture
+type Number[T any] int
+type PairNumber[T,U any] int
+type Alias = Number[int]
+type Integer = int
+type Holder struct { Single Number[int]; Pair PairNumber[int,string]; Alias Alias; Builtin Integer }
+`)
+	packages, err := ScanDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := findStruct(packages[0].Structs, "Holder")
+	for field, want := range map[string]string{"Single": "Number", "Pair": "PairNumber", "Alias": "Number", "Builtin": ""} {
+		got := findField(holder.Fields, field)
+		if got.Category != types.TypeBasic || got.TypeName != want {
+			t.Errorf("%s: category=%v name=%q, want basic name=%q", field, got.Category, got.TypeName, want)
+		}
+	}
+}
+
+func TestScanDir_TestDeclarationNames(t *testing.T) {
+	dir := t.TempDir()
+	writeGoFile(t, dir, "z_types.go", `package fixture; type Holder struct { Values map[string]int }`)
+	writeGoFile(t, dir, "a_helpers_test.go", `package fixture; var maps = 1; const maps1 = 2; type TestOnly struct{}; func dc() {}`)
+	writeGoFile(t, dir, "external_test.go", `package fixture_test; var ExternalOnly = 1`)
+	writeGoFile(t, dir, "inactive_test.go", "//go:build ignore\n\npackage fixture\nvar InactiveOnly = 1\n")
+	onlyTests := filepath.Join(dir, "onlytests")
+	if err := os.Mkdir(onlyTests, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeGoFile(t, onlyTests, "only_test.go", `package onlytests; type NoOutput struct{}`)
+	packages, err := ScanDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 || len(packages[0].Structs) != 1 || len(packages[0].GoFiles) != 1 {
+		t.Fatalf("test files entered generation input: %+v", packages)
+	}
+	for _, name := range []string{"maps", "maps1", "dc", "TestOnly"} {
+		if !slices.Contains(packages[0].Identifiers, name) {
+			t.Errorf("test declaration %q is not reserved", name)
+		}
+	}
+	for _, name := range []string{"ExternalOnly", "InactiveOnly", "NoOutput"} {
+		if slices.Contains(packages[0].Identifiers, name) {
+			t.Errorf("unrelated test declaration %q was reserved", name)
+		}
 	}
 }

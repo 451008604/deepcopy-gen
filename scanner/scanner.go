@@ -29,6 +29,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 		file   *ast.File
 	}
 	var files []cachedFile
+	var testFiles []string
 
 	// Pass 1: parse every file and build a package-level type table so that
 	// field resolution can tell named basic aliases / anonymous composites
@@ -45,7 +46,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".dc.go") {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".dc.go") {
 			return nil
 		}
 		match, matchErr := build.Default.MatchFile(filepath.Dir(path), info.Name())
@@ -53,6 +54,10 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 			return matchErr
 		}
 		if !match {
+			return nil
+		}
+		if strings.HasSuffix(path, "_test.go") {
+			testFiles = append(testFiles, path)
 			return nil
 		}
 		fset := token.NewFileSet()
@@ -66,6 +71,9 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 		}
 		if packages[pkgDir].Name != f.Name.Name {
 			return fmt.Errorf("%s: conflicting packages %s and %s", path, packages[pkgDir].Name, f.Name.Name)
+		}
+		for name := range f.Scope.Objects {
+			packages[pkgDir].Identifiers = append(packages[pkgDir].Identifiers, name)
 		}
 		td := typeDefs[pkgDir]
 		if td == nil {
@@ -88,6 +96,33 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 	})
 	if walkErr != nil {
 		return nil, walkErr
+	}
+
+	// 同包测试声明也会与生成文件的导入冲突，但测试类型不参与生成。
+	for _, path := range testFiles {
+		pkg := packages[filepath.Dir(path)]
+		if pkg == nil {
+			continue
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, source, parser.PackageClauseOnly)
+		if err != nil {
+			return nil, err
+		}
+		if f.Name.Name != pkg.Name {
+			continue
+		}
+		f, err = parser.ParseFile(fset, path, source, 0)
+		if err != nil {
+			return nil, err
+		}
+		for name := range f.Scope.Objects {
+			pkg.Identifiers = append(pkg.Identifiers, name)
+		}
 	}
 
 	// 统一每个包的导入名称，防止不同文件的同名别名或 dc 别名冲突。
@@ -120,7 +155,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 			}
 			if canonical == "" {
 				canonical = local
-				for n := 1; imports[canonical] != "" || typeDefs[cf.pkgDir][canonical] != nil || slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached"}, canonical); n++ {
+				for n := 1; imports[canonical] != "" || slices.Contains(packages[cf.pkgDir].Identifiers, canonical) || slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached"}, canonical); n++ {
 					canonical = fmt.Sprintf("%s%d", local, n)
 				}
 				imports[canonical] = path
@@ -146,13 +181,18 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 	for _, cf := range files {
 		pkg := packages[cf.pkgDir]
 		pkg.GoFiles = append(pkg.GoFiles, cf.path)
-		extracted, err := extractStructs(cf.file, cf.path, typeDefs[cf.pkgDir], packageImports[cf.pkgDir])
+		extracted, err := extractStructs(cf.file, cf.path, typeDefs[cf.pkgDir], packageImports[cf.pkgDir], pkg.Identifiers)
 		if err != nil {
 			return nil, err
 		}
 		pkg.Structs = append(pkg.Structs, extracted...)
 	}
 	for _, pkg := range packages {
+		for alias := range packageImports[pkg.Dir] {
+			pkg.Identifiers = append(pkg.Identifiers, alias)
+		}
+		slices.Sort(pkg.Identifiers)
+		pkg.Identifiers = slices.Compact(pkg.Identifiers)
 		detectSelfReferential(pkg.Structs)
 	}
 
@@ -164,7 +204,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 	return result, nil
 }
 
-func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]*ast.TypeSpec, importMap map[string]string) ([]types.StructInfo, error) {
+func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]*ast.TypeSpec, importMap map[string]string, identifiers []string) ([]types.StructInfo, error) {
 	var structs []types.StructInfo
 	for _, decl := range f.Decls {
 		gd, ok := decl.(*ast.GenDecl)
@@ -184,11 +224,29 @@ func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]*ast.Typ
 			var params []string
 			renameParams := make(map[string]ast.Expr)
 			if ts.TypeParams != nil {
+				usedParams := make(map[string]bool)
+				for _, name := range identifiers {
+					usedParams[name] = true
+				}
+				for name := range importMap {
+					usedParams[name] = true
+				}
+				for _, field := range ts.TypeParams.List {
+					for _, name := range field.Names {
+						usedParams[name.Name] = true
+					}
+				}
 				for _, field := range ts.TypeParams.List {
 					for _, name := range field.Names {
 						param := name.Name
-						if slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached", "_"}, param) || importMap[param] != "" {
-							param = fmt.Sprintf("DCType%d", len(params))
+						if param == ts.Name.Name || slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached", "new", "make", "len", "nil", "_"}, param) || importMap[param] != "" {
+							for index := len(params); ; index++ {
+								param = fmt.Sprintf("DCType%d", index)
+								if !usedParams[param] {
+									usedParams[param] = true
+									break
+								}
+							}
 							renameParams[name.Name] = ast.NewIdent(param)
 						}
 						params = append(params, param)
@@ -459,6 +517,10 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 			underlying, err := underlyingType(expr, typeDefs, make(map[string]bool))
 			if err == nil && underlying != expr {
 				resolveType(fi, underlying, importMap, typeDefs)
+				if fi.Category == types.TypeBasic {
+					// 泛型实例化仍是命名类型，保留其自定义复制方法分派。
+					fi.TypeName = ident.Name
+				}
 				return
 			}
 		}
@@ -479,6 +541,10 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 			remaining := maps.Clone(typeDefs)
 			delete(remaining, t.Name)
 			resolveType(fi, def.Type, importMap, remaining)
+			if fi.Category == types.TypeBasic && !def.Assign.IsValid() {
+				// 命名基础类型可能提供自定义复制方法，不能按内置类型跳过分派。
+				fi.TypeName = t.Name
+			}
 		} else if t.Name == "any" || t.Name == "error" {
 			fi.Category = types.TypeInterface
 		} else if isBuiltinType(t.Name) {

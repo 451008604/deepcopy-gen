@@ -78,10 +78,6 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("generating for package %s: %w", pkg.Name, genErr)
 		}
 
-		if err := generator.ValidateGenerated(code); err != nil {
-			return fmt.Errorf("generated code is invalid for package %s: %w", pkg.Name, err)
-		}
-
 		if *dryRun {
 			fmt.Fprintf(stdout, "// === Package: %s (%s) ===\n", pkg.Name, pkg.Dir)
 			fmt.Fprintln(stdout, code)

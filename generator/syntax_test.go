@@ -294,3 +294,154 @@ type Opaque struct { Value any; Error error; Fn func() int; Ch chan int; Raw uns
  if len(in.Keys)!=1 {t.Fatal("map container shares source")}
 }`)
 }
+
+func TestSyntax_GeneratedNamesAvoidDeclarations(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{"types.go": `package fixture
+ const in = 2
+ const out = 3
+ const v = 1
+ const cached = 1
+ const i = 1
+ const k = 1
+ const val = 1
+ const cp = 1
+ const ok = 1
+ const maps = 1
+ const DCType2 = 1
+ type dc struct { Value int }
+ type Box[DCType1, in any] struct { A DCType1; B []in; Array *[DCType2]*int }
+ type Holder struct { A *[in]*int; B *[out]*int; C *[v]*int; D *[cached]*int; E [][]*[i]*int; F map[string]*[k]*int; G map[string]map[string]*[val]*int; H map[string]*[cp]*int; I *[ok]*int; J *[maps]*int; Scores map[string]int; Box Box[int,int]; DC dc }
+ `}, `func TestCopy(t *testing.T) {
+ n:=7
+ input:=&Holder{A:&[in]*int{&n}, B:&[out]*int{&n}, C:&[v]*int{&n}, D:&[cached]*int{&n}, E:[][]*[i]*int{{{&n}}}, F:map[string]*[k]*int{"a":{&n}}, G:map[string]map[string]*[val]*int{"a":{"b":{&n}}}, H:map[string]*[cp]*int{"a":{&n}}, Box:Box[int,int]{A:1,B:[]int{1}}, DC:dc{Value:9}}
+ result:=input.DeepCopy()
+ *result.A[0]=9;result.Box.B[0]=9
+ if n!=7 || input.Box.B[0]!=1 || result.DC.Value!=9 {t.Fatal("generated name collision or copy isolation failure")}
+ }`)
+}
+
+func TestSyntax_RenamedImportsAvoidConstants(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{
+		"a.go": `package fixture
+import in "time"
+type Event struct { Values *[]in.Time }
+`,
+		"b.go": `package fixture
+const in1 = 2
+type Data struct { Values *[in1]*int }
+`,
+	}, `func TestCopy(t *testing.T) {
+ n:=1;in:=&Data{Values:&[in1]*int{&n}};cp:=in.DeepCopy();*cp.Values[0]=2
+ if n!=1 {t.Fatal("copy leaked")}
+}`)
+}
+
+func TestSyntax_TypeParametersAvoidBuiltinsAndReceiver(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{"types.go": `package fixture
+type Box[Box, new, make, len, nil any] struct { A Box; B new; C []make; D map[string]len; E *nil }
+`}, `func TestCopy(t *testing.T) {
+ n:=5;in:=&Box[int,int,int,int,int]{A:1,B:2,C:[]int{3},D:map[string]int{"x":4},E:&n}
+ cp:=in.DeepCopy();cp.C[0]=9;cp.D["x"]=9;*cp.E=9
+ if cp.A!=1 || cp.B!=2 || in.C[0]!=3 || in.D["x"]!=4 || n!=5 {t.Fatal("generic copy failed")}
+}`)
+}
+
+func TestSyntax_BuiltinContainers(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{"types.go": `package fixture
+type Integer = int
+type Containers struct { Map map[string]Integer; Matrix [][]int; Maps []map[string]int; Slices map[string][]int }
+`}, `func TestCopy(t *testing.T) {
+ in:=&Containers{Map:map[string]int{"x":1}, Matrix:[][]int{nil,{}, {1}}, Maps:[]map[string]int{nil,{}, {"x":1}}, Slices:map[string][]int{"nil":nil,"empty":{},"value":{1}}}
+ cp:=in.DeepCopy()
+ if cp.Matrix[0]!=nil || cp.Matrix[1]==nil || cp.Maps[0]!=nil || cp.Maps[1]==nil {t.Fatal("nested nil/empty distinction lost")}
+ if v,ok:=cp.Slices["nil"]; !ok || v!=nil {t.Fatal("nil map entry lost")}
+ if cp.Slices["empty"]==nil {t.Fatal("empty map entry changed to nil")}
+ cp.Map["x"]=2;cp.Matrix[2][0]=2;cp.Maps[2]["x"]=2;cp.Slices["value"][0]=2
+ if in.Map["x"]!=1 || in.Matrix[2][0]!=1 || in.Maps[2]["x"]!=1 || in.Slices["value"][0]!=1 {t.Fatal("container copy leaked")}
+ zero:=(&Containers{}).DeepCopy()
+ if zero.Map!=nil || zero.Matrix!=nil || zero.Maps!=nil || zero.Slices!=nil {t.Fatal("nil container changed")}
+ empty:=(&Containers{Map:map[string]int{},Matrix:[][]int{},Maps:[]map[string]int{},Slices:map[string][]int{}}).DeepCopy()
+ if empty.Map==nil || empty.Matrix==nil || empty.Maps==nil || empty.Slices==nil {t.Fatal("empty container changed to nil")}
+}`)
+}
+
+func TestSyntax_NamedScalarsKeepCustomCopy(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{"types.go": `package fixture
+type Number int
+type Alias = Number
+func (n Number) DeepCopy() Number { return n+10 }
+type PointerNumber int
+func (n *PointerNumber) DeepCopy() *PointerNumber { out:=*n+20;return &out }
+type Containers struct { Map map[string]Alias; Matrix [][]Number; Maps []map[string]Number; Slices map[string][]Number; PointerMap map[string]PointerNumber }
+`}, `func TestCopy(t *testing.T) {
+ in:=&Containers{Map:map[string]Alias{"x":1}, Matrix:[][]Number{{1}}, Maps:[]map[string]Number{{"x":1}}, Slices:map[string][]Number{"x":{1}}, PointerMap:map[string]PointerNumber{"x":1}}
+ cp:=in.DeepCopy()
+ if cp.Map["x"]!=11 || cp.Matrix[0][0]!=11 || cp.Maps[0]["x"]!=11 || cp.Slices["x"][0]!=11 || cp.PointerMap["x"]!=21 {t.Fatal("custom copy dispatch was bypassed")}
+ if in.Map["x"]!=1 || in.Matrix[0][0]!=1 || in.Maps[0]["x"]!=1 || in.Slices["x"][0]!=1 || in.PointerMap["x"]!=1 {t.Fatal("custom copy changed source")}
+}`)
+}
+
+func TestSyntax_GenericScalarsKeepCustomCopy(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{"types.go": `package fixture
+type Number[T any] int
+func (n Number[T]) DeepCopy() Number[T] { return n+10 }
+type Alias = Number[int]
+type PointerNumber[T,U any] int
+func (n *PointerNumber[T,U]) DeepCopy() *PointerNumber[T,U] { out:=*n+20;return &out }
+type Containers struct {
+ Map map[string]Number[int]; Matrix [][]Alias; Maps []map[string]Number[int]; Slices map[string][]Number[int]
+ PointerMap map[string]PointerNumber[int,string]; PointerMatrix [][]PointerNumber[int,string]
+ PointerMaps []map[string]PointerNumber[int,string]; PointerSlices map[string][]PointerNumber[int,string]
+}
+`}, `func TestCopy(t *testing.T) {
+ in:=&Containers{
+  Map:map[string]Number[int]{"x":1},Matrix:[][]Alias{{1}},Maps:[]map[string]Number[int]{{"x":1}},Slices:map[string][]Number[int]{"x":{1}},
+  PointerMap:map[string]PointerNumber[int,string]{"x":1},PointerMatrix:[][]PointerNumber[int,string]{{1}},
+  PointerMaps:[]map[string]PointerNumber[int,string]{{"x":1}},PointerSlices:map[string][]PointerNumber[int,string]{"x":{1}},
+ }
+ cp:=in.DeepCopy()
+ for name,value:=range map[string]Number[int]{"map":cp.Map["x"],"matrix":cp.Matrix[0][0],"slice-map":cp.Maps[0]["x"],"map-slice":cp.Slices["x"][0]} {
+  if value!=11 {t.Errorf("%s: got %d, want custom copy result 11",name,value)}
+ }
+ for name,value:=range map[string]PointerNumber[int,string]{"map":cp.PointerMap["x"],"matrix":cp.PointerMatrix[0][0],"slice-map":cp.PointerMaps[0]["x"],"map-slice":cp.PointerSlices["x"][0]} {
+  if value!=21 {t.Errorf("pointer %s: got %d, want custom copy result 21",name,value)}
+ }
+ if in.Map["x"]!=1 || in.Matrix[0][0]!=1 || in.Maps[0]["x"]!=1 || in.Slices["x"][0]!=1 || in.PointerMap["x"]!=1 || in.PointerMatrix[0][0]!=1 || in.PointerMaps[0]["x"]!=1 || in.PointerSlices["x"][0]!=1 {t.Fatal("custom copy changed source")}
+}`)
+}
+
+func TestSyntax_ImportsAvoidTestDeclarations(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{
+		"types.go": `package fixture; type Holder struct { Values map[string]int }`,
+		"a_helpers_test.go": `package fixture
+var maps = []map[string]int{{"x":1}}
+const maps1 = 1
+type dc struct{}
+`,
+	}, `func TestCopy(t *testing.T) {
+ in:=&Holder{Values:maps[0]};cp:=in.DeepCopy();cp.Values["x"]=2
+ if in.Values["x"]!=1 {t.Fatal("copy leaked")}
+ if _,ok:=any(&dc{}).(interface{ DeepCopy() *dc });ok {t.Fatal("test-only type received generated methods")}
+}`)
+}
+
+func TestSyntax_ValueOnlyPointerSharing(t *testing.T) {
+	testGeneratedPackage(t, map[string]string{
+		"types.go": `package fixture
+import maps "fixture/leaf"
+type Point struct { X int }
+type Coords [2]int
+type Holder struct { A,B *Point; X,Y *Coords; External []*maps.Point; Scores map[string]int }
+`,
+		"leaf/types.go": `package leaf; type Point struct { X int }`,
+	}, `func TestCopy(t *testing.T) {
+ p:=&Point{1};a:=&Coords{1,2}
+ in:=&Holder{A:p,B:p,X:a,Y:a,Scores:map[string]int{"x":1}}
+ cp:=in.DeepCopy()
+ if cp.A!=cp.B || cp.A==p || cp.X!=cp.Y || cp.X==a {t.Fatal("value-only pointer sharing lost")}
+ visited:=make(map[any]any)
+ first:=p.DeepCopyWithVisited(visited)
+ if first==p || first!=p.DeepCopyWithVisited(visited) {t.Fatal("shared entry bypassed pointer tracking")}
+ if p.DeepCopy()==p || a.DeepCopy()==a || (*Point)(nil).DeepCopy()!=nil || (*Coords)(nil).DeepCopy()!=nil {t.Fatal("standalone value copy invalid")}
+}`)
+}

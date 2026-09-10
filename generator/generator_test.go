@@ -91,7 +91,7 @@ func TestGenerate_Complex_SliceFields(t *testing.T) {
 	assertContains(t, code, "func (in *WithSlice) DeepCopy() *WithSlice")
 	assertContains(t, code, "out.Names = dc.CopySlice(in.Names)")
 	assertContains(t, code, "out.Numbers = dc.CopySlice(in.Numbers)")
-	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(v, in.Matrix)")
+	assertContains(t, code, "out.Matrix[i] = dc.CopySlice(in.Matrix[i])")
 	assertContains(t, code, "out.Ptrs = dc.CopySlicePtr(v, in.Ptrs)")
 }
 
@@ -104,9 +104,9 @@ func TestGenerate_Complex_MapFields(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *WithMap) DeepCopy() *WithMap")
-	assertContains(t, code, "out.Labels = dc.CopyMap(v, in.Labels)")
-	assertContains(t, code, "out.Scores = dc.CopyMap(v, in.Scores)")
-	assertContains(t, code, "out.IntKeyMap = dc.CopyMap(v, in.IntKeyMap)")
+	assertContains(t, code, "out.Labels = maps.Clone(in.Labels)")
+	assertContains(t, code, "out.Scores = maps.Clone(in.Scores)")
+	assertContains(t, code, "out.IntKeyMap = maps.Clone(in.IntKeyMap)")
 }
 
 func TestGenerate_Complex_MapWithPointerValues(t *testing.T) {
@@ -126,7 +126,8 @@ func TestGenerate_Complex_MapWithSliceValues(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Nested = dc.CopyMapSlice(v, in.Nested)")
+	assertContains(t, code, "cp = dc.CopySlice(val)")
+	assertContains(t, code, "out.Nested[k] = cp")
 }
 
 func TestGenerate_Nested(t *testing.T) {
@@ -218,7 +219,7 @@ func TestGenerate_SliceOfSlices(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	assertContains(t, code, "out.Matrix = dc.CopySliceSlice(v, in.Matrix)")
+	assertContains(t, code, "out.Matrix[i] = dc.CopySlice(in.Matrix[i])")
 }
 
 func TestGenerate_MixedStruct(t *testing.T) {
@@ -232,7 +233,7 @@ func TestGenerate_MixedStruct(t *testing.T) {
 	assertContains(t, code, "func (in *Mixed) DeepCopy() *Mixed")
 	assertContains(t, code, "out.Name = dc.CopyPtr(v, in.Name)")
 	assertContains(t, code, "out.Tags = dc.CopySlice(in.Tags)")
-	assertContains(t, code, "out.Metadata = dc.CopyMap(v, in.Metadata)")
+	assertContains(t, code, "out.Metadata = maps.Clone(in.Metadata)")
 	assertContains(t, code, "out.Scores = dc.CopySlicePtr(v, in.Scores)")
 }
 
@@ -337,7 +338,7 @@ func TestGenerate_SliceOfMaps(t *testing.T) {
 
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *SliceOfMaps) DeepCopy() *SliceOfMaps")
-	assertContains(t, code, "out.Maps = dc.CopySliceMap[string, int](v, in.Maps)")
+	assertContains(t, code, "out.Maps[i] = maps.Clone(in.Maps[i])")
 }
 
 func TestGenerate_MultiNameFields(t *testing.T) {
