@@ -6,6 +6,10 @@
 
 `deepcopy-gen` 是一个 Go 代码生成工具，自动扫描指定目录下所有 Go 源文件中的 struct 定义，并为每个 struct 生成类型安全的深拷贝（DeepCopy）方法。生成的代码使用泛型辅助函数，简洁高效。
 
+## Go 类型支持与测试
+
+支持范围、运行时拷贝边界和回归测试说明见 [Go 类型支持与测试范围](SUPPORT.md)。目标语言版本为 Go 1.21；接口动态值、无复制方法的泛型参数等仍保留赋值语义。
+
 ## 特性
 
 - **AST 精确解析** — 基于 `go/ast` 标准库，准确识别所有 struct 字段类型
@@ -139,7 +143,7 @@ func (in *TreeNode) deepcopy(v dc.Visited) *TreeNode {
 
 ## 跨包嵌入支持
 
-对于外部包的嵌入结构体，生成器会自动使用 `dc.CopyPtr` 运行时检测 `deepcopy()` 方法：
+对于外部包的嵌入结构体，生成器会自动使用 `dc.CopyPtr` 优先调用 `DeepCopyWithVisited` 共享访问记录，并兼容只有 `DeepCopy()` 的旧代码：
 
 ```go
 import (
@@ -174,11 +178,10 @@ func (in *Player) deepcopy(v dc.Visited) *Player {
 
 ## 测试覆盖率
 
-```
-deepcopy-gen/deepcopy    99.0%
-deepcopy-gen/generator    87.7%
-deepcopy-gen/scanner      90.8%
-总覆盖率                   91.6%
+运行以下命令获取当前覆盖率；语法回归测试还会编译并执行生成结果。
+
+```sh
+go test ./... -count=1 -cover
 ```
 
 ## 项目结构
@@ -197,20 +200,13 @@ deepcopy-gen/
 ├── deepcopy/
 │   ├── helpers.go           # 泛型深拷贝辅助函数
 │   └── helpers_test.go      # 辅助函数测试
-└── testdata/                # 13 个测试包
-    ├── simple/              # 基本类型
-    ├── complex/             # 指针、切片、Map
-    ├── nested/              # 嵌套结构体
-    ├── embedded/            # 嵌入字段
-    ├── selector/            # 选择器表达式
-    ├── edgecase/            # 边界情况
-    ├── selfref/             # 自引用结构体
-    ├── iface/               # interface{} 字段
-    ├── crosspkg/            # 跨包嵌入
-    ├── external/            # 外部包类型
+├── tests/runtime_test.go    # 生成代码的运行时隔离测试
+└── testdata/
+    ├── types.go             # 合并后的主测试类型
+    ├── deepcopy.dc.go       # 生成方法
+    ├── external/            # 跨包类型
     ├── gamecore/            # 第二个外部包
-    ├── multifile/           # 多文件包
-    └── empty/               # 空结构体
+    └── multifile/           # 多文件包
 ```
 
 ## 限制

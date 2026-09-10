@@ -6,6 +6,10 @@
 
 `deepcopy-gen` is a Go code generation tool that automatically scans all Go source files in a given directory (recursively) for struct definitions and generates type-safe deep copy (`DeepCopy`) methods. The generated code uses generic helper functions — concise, efficient, and zero reflection overhead.
 
+## Go Type Support and Tests
+
+See [Go type support and test coverage](SUPPORT.md) for supported syntax, runtime copy boundaries, and regression tests. The language target is Go 1.21. Dynamic interface values and generic arguments without copy methods retain assignment semantics.
+
 ## Features
 
 - **Precise AST parsing** — Built on `go/ast`, accurately identifies all struct field types
@@ -139,7 +143,7 @@ func (in *TreeNode) deepcopy(v dc.Visited) *TreeNode {
 
 ## Cross-Package Embedding Support
 
-For embedded structs from external packages, the generator automatically uses `dc.CopyPtr` to detect `deepcopy()` methods at runtime:
+For embedded structs from external packages, the generator automatically uses `dc.CopyPtr` to share visited state through `DeepCopyWithVisited`, with a fallback to legacy `DeepCopy()` methods:
 
 ```go
 import (
@@ -174,11 +178,10 @@ func (in *Player) deepcopy(v dc.Visited) *Player {
 
 ## Test Coverage
 
-```
-deepcopy-gen/deepcopy    99.0%
-deepcopy-gen/generator    87.7%
-deepcopy-gen/scanner      90.8%
-Total                     91.6%
+Measure current coverage with the command below. Syntax regression tests also compile and execute generated code.
+
+```sh
+go test ./... -count=1 -cover
 ```
 
 ## Project Structure
@@ -197,20 +200,13 @@ deepcopy-gen/
 ├── deepcopy/
 │   ├── helpers.go           # Generic deep copy helper functions
 │   └── helpers_test.go      # Helper tests
-└── testdata/                # 13 test packages
-    ├── simple/              # Basic types
-    ├── complex/             # Pointers, slices, maps
-    ├── nested/              # Nested structs
-    ├── embedded/            # Embedded fields
-    ├── selector/            # Selector expressions
-    ├── edgecase/            # Edge cases
-    ├── selfref/             # Self-referential structs
-    ├── iface/               # interface{} fields
-    ├── crosspkg/            # Cross-package embedding
-    ├── external/            # External package types
+├── tests/runtime_test.go    # Generated copy isolation tests
+└── testdata/
+    ├── types.go             # Consolidated fixture types
+    ├── deepcopy.dc.go       # Generated methods
+    ├── external/            # Cross-package types
     ├── gamecore/            # Second external package
-    ├── multifile/           # Multi-file packages
-    └── empty/               # Empty structs
+    └── multifile/           # Multiple source files
 ```
 
 ## Limitations
