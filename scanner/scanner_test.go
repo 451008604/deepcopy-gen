@@ -42,6 +42,8 @@ func TestScanDir_MergedTypes(t *testing.T) {
 		"AnonHolder",
 		"ArrayOfPointers",
 		"Base",
+		"ConcurrentMap",
+		"ConcurrentMapShared",
 		"Config",
 		"Coords",
 		"Department",
