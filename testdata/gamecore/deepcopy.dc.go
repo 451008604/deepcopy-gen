@@ -8,10 +8,15 @@ import (
 
 // DeepCopy returns a deep copy of Position.
 func (in *Position) DeepCopy() *Position {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *Position) DeepCopyWithVisited(v dc.Visited) *Position {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *Position) deepcopy(v dc.Visited) *Position {
@@ -29,10 +34,15 @@ func (in *Position) deepcopy(v dc.Visited) *Position {
 
 // DeepCopy returns a deep copy of Character.
 func (in *Character) DeepCopy() *Character {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *Character) DeepCopyWithVisited(v dc.Visited) *Character {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *Character) deepcopy(v dc.Visited) *Character {
@@ -51,10 +61,15 @@ func (in *Character) deepcopy(v dc.Visited) *Character {
 
 // DeepCopy returns a deep copy of Inventory.
 func (in *Inventory) DeepCopy() *Inventory {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *Inventory) DeepCopyWithVisited(v dc.Visited) *Inventory {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *Inventory) deepcopy(v dc.Visited) *Inventory {
@@ -73,10 +88,15 @@ func (in *Inventory) deepcopy(v dc.Visited) *Inventory {
 
 // DeepCopy returns a deep copy of Item.
 func (in *Item) DeepCopy() *Item {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *Item) DeepCopyWithVisited(v dc.Visited) *Item {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *Item) deepcopy(v dc.Visited) *Item {

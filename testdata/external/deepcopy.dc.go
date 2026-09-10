@@ -8,10 +8,15 @@ import (
 
 // DeepCopy returns a deep copy of AccountInfo.
 func (in *AccountInfo) DeepCopy() *AccountInfo {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *AccountInfo) DeepCopyWithVisited(v dc.Visited) *AccountInfo {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *AccountInfo) deepcopy(v dc.Visited) *AccountInfo {
@@ -29,10 +34,15 @@ func (in *AccountInfo) deepcopy(v dc.Visited) *AccountInfo {
 
 // DeepCopy returns a deep copy of AccountExtra.
 func (in *AccountExtra) DeepCopy() *AccountExtra {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *AccountExtra) DeepCopyWithVisited(v dc.Visited) *AccountExtra {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *AccountExtra) deepcopy(v dc.Visited) *AccountExtra {
@@ -52,10 +62,15 @@ func (in *AccountExtra) deepcopy(v dc.Visited) *AccountExtra {
 
 // DeepCopy returns a deep copy of GameItem.
 func (in *GameItem) DeepCopy() *GameItem {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *GameItem) DeepCopyWithVisited(v dc.Visited) *GameItem {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *GameItem) deepcopy(v dc.Visited) *GameItem {
@@ -74,10 +89,15 @@ func (in *GameItem) deepcopy(v dc.Visited) *GameItem {
 
 // DeepCopy returns a deep copy of GameState.
 func (in *GameState) DeepCopy() *GameState {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *GameState) DeepCopyWithVisited(v dc.Visited) *GameState {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *GameState) deepcopy(v dc.Visited) *GameState {
@@ -93,8 +113,11 @@ func (in *GameState) deepcopy(v dc.Visited) *GameState {
 	if in.Items != nil {
 		out.Items = make([]GameItem, len(in.Items))
 		for i := range in.Items {
+			out.Items[i] = in.Items[i]
 			out.Items[i] = *in.Items[i].deepcopy(v)
 		}
+	} else {
+		out.Items = nil
 	}
 	out.Inventory = dc.CopyMapPtr(v, in.Inventory)
 	out.LastActive = in.LastActive.deepcopy(v)
@@ -103,10 +126,15 @@ func (in *GameState) deepcopy(v dc.Visited) *GameState {
 
 // DeepCopy returns a deep copy of GameItemFull.
 func (in *GameItemFull) DeepCopy() *GameItemFull {
-	if in == nil {
-		return nil
-	}
 	return in.deepcopy(make(dc.Visited))
+}
+
+// DeepCopyWithVisited shares pointer tracking across generated packages.
+func (in *GameItemFull) DeepCopyWithVisited(v dc.Visited) *GameItemFull {
+	if v == nil {
+		v = make(dc.Visited)
+	}
+	return in.deepcopy(v)
 }
 
 func (in *GameItemFull) deepcopy(v dc.Visited) *GameItemFull {

@@ -10,14 +10,14 @@ import (
 )
 
 func TestRun_DryRun(t *testing.T) {
-	dir := filepath.Join("testdata", "simple")
+	dir := "testdata"
 	var stdout, stderr bytes.Buffer
 	err := run([]string{"-dir", dir, "-dry-run"}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "package simple") {
-		t.Error("expected output to contain 'package simple'")
+	if !strings.Contains(stdout.String(), "package testdata") {
+		t.Error("expected output to contain 'package testdata'")
 	}
 	if !strings.Contains(stdout.String(), "DeepCopy") {
 		t.Error("expected output to contain 'DeepCopy'")
@@ -109,7 +109,7 @@ func TestRun_MultiplePackages(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 	out := stdout.String()
-	for _, pkg := range []string{"simple", "complex", "nested", "empty"} {
+	for _, pkg := range []string{"testdata", "external", "gamecore", "multifile"} {
 		if !strings.Contains(out, "package "+pkg) {
 			t.Errorf("expected output to contain 'package %s'", pkg)
 		}
@@ -137,12 +137,15 @@ func TestTestDataCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read testdata: %v", err)
 	}
+	dirs := []string{"testdata"}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		sub := filepath.Join("testdata", e.Name())
-		t.Run(e.Name(), func(t *testing.T) {
+		dirs = append(dirs, filepath.Join("testdata", e.Name()))
+	}
+	for _, sub := range dirs {
+		t.Run(sub, func(t *testing.T) {
 			cmd := exec.Command("go", "build", "./...")
 			cmd.Dir = sub
 			out, err := cmd.CombinedOutput()
@@ -150,5 +153,79 @@ func TestTestDataCompiles(t *testing.T) {
 				t.Errorf("go build %s failed:\n%s", sub, out)
 			}
 		})
+	}
+}
+
+func TestRun_PositionalArgumentAndStaleCleanup(t *testing.T) {
+	dir := t.TempDir()
+	source := []byte("package fixture\ntype Item struct { Value *int }\n")
+	if err := os.WriteFile(filepath.Join(dir, "types.go"), source, 0644); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(dir, "orphan")
+	if err := os.Mkdir(orphan, 0755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(orphan, "deepcopy.dc.go")
+	if err := os.WriteFile(stale, []byte("stale"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"-dry-run", dir}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatal("dry-run removed stale output")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "deepcopy.dc.go")); !os.IsNotExist(err) {
+		t.Fatal("dry-run wrote generated output")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := run([]string{"-v", dir}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("stale output still exists")
+	}
+	if !strings.Contains(stdout.String(), "removed stale") {
+		t.Fatal("missing stale cleanup message")
+	}
+	generated, err := os.ReadFile(filepath.Join(dir, "deepcopy.dc.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(generated, []byte("func (in *Item) DeepCopy() *Item")) {
+		t.Fatal("positional path did not generate Item")
+	}
+	actual, err := os.ReadFile(filepath.Join(dir, "types.go"))
+	if err != nil || !bytes.Equal(actual, source) {
+		t.Fatal("source file changed")
+	}
+}
+
+func TestRun_InvalidSourcePreservesExistingOutput(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "types.go"), []byte("invalid Go"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "deepcopy.dc.go")
+	if err := os.WriteFile(path, []byte("old output"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{dir}, &stdout, &stderr); err == nil {
+		t.Fatal("invalid source accepted")
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || string(actual) != "old output" {
+		t.Fatal("failed scan destroyed existing output")
+	}
+}
+
+func TestRun_FlagsWithoutDirectory(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"-v"}, &stdout, &stderr); err == nil {
+		t.Fatal("missing directory accepted")
 	}
 }

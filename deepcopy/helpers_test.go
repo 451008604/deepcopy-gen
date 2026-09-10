@@ -310,3 +310,103 @@ func TestCopySlicePtr_CrossPackageCycle(t *testing.T) {
 		t.Fatal("cycle should be preserved: Bs[0].As[0] should point to copy of A")
 	}
 }
+
+func TestCopyPtr_PreservesSharedBasics(t *testing.T) {
+	n := 7
+	v := NewVisited()
+	first, second := CopyPtr(v, &n), CopyPtr(v, &n)
+	if first == &n || first != second {
+		t.Fatal("shared pointer identity was not preserved")
+	}
+	*first = 9
+	if n != 7 {
+		t.Fatal("copy shares source storage")
+	}
+	p := &n
+	pp1, pp2 := CopyDoublePtr(v, &p), CopyDoublePtr(v, &p)
+	if pp1 == &p || pp1 != pp2 || *pp1 != first {
+		t.Fatal("double pointer identity lost")
+	}
+}
+
+func TestCopyMapPtr_PreservesNilEntries(t *testing.T) {
+	input := map[string]*int{"nil": nil}
+	cp := CopyMapPtr(NewVisited(), input)
+	if value, ok := cp["nil"]; !ok || value != nil {
+		t.Fatal("nil map entry lost")
+	}
+}
+
+type exportedCopy struct{ Values []int }
+
+func (x *exportedCopy) DeepCopy() *exportedCopy {
+	if x == nil {
+		return nil
+	}
+	return &exportedCopy{Values: CopySlice(x.Values)}
+}
+
+type visitedCopy struct {
+	Next   *visitedCopy
+	Number int
+}
+
+func (x *visitedCopy) DeepCopyWithVisited(v Visited) *visitedCopy {
+	if x == nil {
+		return nil
+	}
+	if cp, ok := v[x]; ok {
+		return cp.(*visitedCopy)
+	}
+	cp := &visitedCopy{Number: x.Number}
+	v[x] = cp
+	cp.Next = CopyPtr(v, x.Next)
+	return cp
+}
+
+func TestCopyPtr_ExportedContracts(t *testing.T) {
+	in := &exportedCopy{Values: []int{1}}
+	v := NewVisited()
+	cp := CopyPtr(v, in)
+	cp.Values[0] = 9
+	if in.Values[0] != 1 || CopyPtr(v, in) != cp {
+		t.Fatal("exported copy fallback or cache failed")
+	}
+	node := &visitedCopy{Number: 7}
+	node.Next = node
+	cloned := CopyPtr(NewVisited(), node)
+	if cloned == node || cloned.Next != cloned || cloned.Number != 7 {
+		t.Fatal("visited contract failed")
+	}
+}
+
+func TestCopyValueAndContainers_ExportedContracts(t *testing.T) {
+	in := exportedCopy{Values: []int{1}}
+	values := []exportedCopy{
+		CopyValue(NewVisited(), in),
+		CopySliceSlice(NewVisited(), [][]exportedCopy{{in}})[0][0],
+		CopySliceMap(NewVisited(), []map[string]exportedCopy{{"a": in}})[0]["a"],
+		CopyMap(NewVisited(), map[string]exportedCopy{"a": in})["a"],
+		CopyMapSlice(NewVisited(), map[string][]exportedCopy{"a": {in}})["a"][0],
+	}
+	for _, cp := range values {
+		cp.Values[0] = 9
+	}
+	if in.Values[0] != 1 {
+		t.Fatal("value receiver dispatch copied shallowly")
+	}
+	ptr := CopyValue(NewVisited(), &in)
+	ptr.Values[0] = 9
+	if in.Values[0] != 1 {
+		t.Fatal("pointer type argument copied shallowly")
+	}
+	node := &visitedCopy{Number: 7}
+	node.Next = node
+	copied := CopyValue(NewVisited(), node)
+	if copied.Next != copied || copied == node {
+		t.Fatal("visited value contract failed")
+	}
+	if CopyValue(NewVisited(), 42) != 42 {
+		t.Fatal("opaque scalar changed")
+	}
+}

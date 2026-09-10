@@ -3,19 +3,19 @@ package tests
 import (
 	"testing"
 
+	"github.com/451008604/deepcopy-gen/testdata"
 	"github.com/451008604/deepcopy-gen/testdata/external"
-	"github.com/451008604/deepcopy-gen/testdata/namedtypes"
 )
 
 // These tests verify runtime deep-copy isolation for field/type patterns that
 // previously produced compile errors or silent shallow copies. They exercise
-// the generated code in testdata/namedtypes/deepcopy.dc.go.
+// the generated code in testdata/deepcopy.dc.go.
 
 func TestNamedPtrFields_DeepCopy(t *testing.T) {
-	s := namedtypes.Score(5)
-	m := namedtypes.Matrix{1, 2, 3}
-	inv := namedtypes.Inventory{"k": 1}
-	in := &namedtypes.NamedPtrFields{S: &s, M: &m, I: &inv}
+	s := testdata.Score(5)
+	m := testdata.Matrix{1, 2, 3}
+	inv := testdata.Inventory{"k": 1}
+	in := &testdata.NamedPtrFields{S: &s, M: &m, I: &inv}
 	cp := in.DeepCopy()
 
 	*cp.S = 999
@@ -35,7 +35,7 @@ func TestNamedPtrFields_DeepCopy(t *testing.T) {
 
 func TestNamedValueFields_DeepCopy(t *testing.T) {
 	a, b, c := 1, 2, 3
-	in := &namedtypes.NamedValueFields{T: namedtypes.Tags{"x"}, M: namedtypes.Meta{"k": 1}, C: namedtypes.Coords{&a, &b, &c}}
+	in := &testdata.NamedValueFields{T: testdata.Tags{"x"}, M: testdata.Meta{"k": 1}, C: testdata.Coords{&a, &b, &c}}
 	cp := in.DeepCopy()
 
 	cp.T[0] = "y"
@@ -59,7 +59,7 @@ func TestPtrToComposite_DeepCopy(t *testing.T) {
 	items := []*external.GameItem{{Name: "sword", Count: 1}}
 	m := map[string]int{"k": 1}
 	mi := map[string]*external.GameItem{"k": {Name: "potion", Count: 2}}
-	in := &namedtypes.PtrToComposite{Basic: &basic, Items: &items, M: &m, MI: &mi}
+	in := &testdata.PtrToComposite{Basic: &basic, Items: &items, M: &m, MI: &mi}
 	cp := in.DeepCopy()
 
 	(*cp.Basic)[0] = "y"
@@ -84,8 +84,8 @@ func TestPtrToComposite_DeepCopy(t *testing.T) {
 }
 
 func TestMapOfStruct_DeepCopy(t *testing.T) {
-	in := &namedtypes.MapOfStruct{
-		Same:  map[string]namedtypes.Item{"k": {Tags: []string{"a"}}},
+	in := &testdata.MapOfStruct{
+		Same:  map[string]testdata.Item{"k": {Tags: []string{"a"}}},
 		Cross: map[string]external.GameItem{"k": {Name: "n", Count: 1}},
 	}
 	cp := in.DeepCopy()
@@ -110,7 +110,7 @@ func TestMapOfStruct_DeepCopy(t *testing.T) {
 func TestAnonHolder_DeepCopy(t *testing.T) {
 	n := 5
 	p := "hi"
-	in := &namedtypes.AnonHolder{}
+	in := &testdata.AnonHolder{}
 	in.S.N = &n
 	in.S.Inner.P = &p
 	cp := in.DeepCopy()
@@ -127,7 +127,7 @@ func TestAnonHolder_DeepCopy(t *testing.T) {
 }
 
 func TestHasStructValue_DeepCopy(t *testing.T) {
-	in := &namedtypes.HasStructValue{Home: namedtypes.Addr{Tags: []string{"x"}}}
+	in := &testdata.HasStructValue{Home: testdata.Addr{Tags: []string{"x"}}}
 	cp := in.DeepCopy()
 	cp.Home.Tags[0] = "y"
 	if in.Home.Tags[0] == "y" {
@@ -136,7 +136,7 @@ func TestHasStructValue_DeepCopy(t *testing.T) {
 }
 
 func TestHasCrossValue_DeepCopy(t *testing.T) {
-	in := &namedtypes.HasCrossValue{Owner: external.AccountInfo{ID: 7, Username: "u"}}
+	in := &testdata.HasCrossValue{Owner: external.AccountInfo{ID: 7, Username: "u"}}
 	cp := in.DeepCopy()
 	cp.Owner.ID = 999
 	cp.Owner.Username = "mut"
@@ -147,7 +147,7 @@ func TestHasCrossValue_DeepCopy(t *testing.T) {
 
 func TestSets_DeepCopy(t *testing.T) {
 	n := 7
-	in := &namedtypes.Sets{
+	in := &testdata.Sets{
 		Members: map[int32]struct{}{1: {}, 2: {}},
 		Tagged:  map[string]struct{ N *int }{"k": {N: &n}},
 	}
@@ -165,8 +165,8 @@ func TestSets_DeepCopy(t *testing.T) {
 }
 
 func TestAliases_DeepCopy(t *testing.T) {
-	in := &namedtypes.Aliases{
-		Scores: []namedtypes.Score{1, 2, 3},
+	in := &testdata.Aliases{
+		Scores: []testdata.Score{1, 2, 3},
 		Empty:  []struct{}{{}, {}, {}},
 	}
 	cp := in.DeepCopy()

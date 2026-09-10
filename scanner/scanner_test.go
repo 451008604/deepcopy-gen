@@ -19,9 +19,9 @@ func testdataDir(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "testdata")
 }
 
-func TestScanDir_Simple(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "simple")
-	packages, err := ScanDir(dir)
+func TestScanDir_MergedTypes(t *testing.T) {
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -30,20 +30,85 @@ func TestScanDir_Simple(t *testing.T) {
 	}
 
 	pkg := packages[0]
-	if pkg.Name != "simple" {
-		t.Errorf("expected package name 'simple', got %q", pkg.Name)
+	if pkg.Name != "testdata" {
+		t.Errorf("expected package name 'testdata', got %q", pkg.Name)
 	}
 
 	structNames := sortedStructNames(pkg.Structs)
-	expected := []string{"Config", "Person", "Point"}
+	expected := []string{
+		"Addr",
+		"Address",
+		"Aliases",
+		"AnonHolder",
+		"ArrayOfPointers",
+		"Base",
+		"Config",
+		"Coords",
+		"Department",
+		"EdgeInterface",
+		"Employee",
+		"Empty",
+		"Event",
+		"ExternalWithLocalSlice",
+		"ExternalWithMapOfExternal",
+		"ExternalWithPointerToExternal",
+		"ExternalWithSliceOfExternal",
+		"GameSession",
+		"GraphNode",
+		"HasCrossValue",
+		"HasStructValue",
+		"InterfaceMap",
+		"InterfaceSlice",
+		"Inventory",
+		"Item",
+		"LinkedNode",
+		"MapOfExternal",
+		"MapOfStruct",
+		"Marker",
+		"Matrix",
+		"Meta",
+		"Mixed",
+		"MultiExternalEmbed",
+		"MultiName",
+		"NamedPtrFields",
+		"NamedValueFields",
+		"NestedExternal",
+		"NestedInterface",
+		"Node",
+		"Person",
+		"Player",
+		"PlayerWithExtra",
+		"Point",
+		"PointerEmbed",
+		"PtrToComposite",
+		"Sets",
+		"SliceOfExternal",
+		"SliceOfExternalPtr",
+		"SliceOfMaps",
+		"Tags",
+		"Team",
+		"Timestamped",
+		"TreeNode",
+		"TreeWithMap",
+		"WithArray",
+		"WithChannel",
+		"WithEmbedded",
+		"WithEmbeddedPointer",
+		"WithInterface",
+		"WithMap",
+		"WithPointer",
+		"WithSlice",
+		"compensationHeap",
+		"withUnexported",
+	}
 	if !sliceEqual(structNames, expected) {
 		t.Errorf("expected structs %v, got %v", expected, structNames)
 	}
 }
 
 func TestScanDir_Complex(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -52,14 +117,16 @@ func TestScanDir_Complex(t *testing.T) {
 	}
 
 	pkg := packages[0]
-	if len(pkg.Structs) != 5 {
-		t.Fatalf("expected 5 structs, got %d", len(pkg.Structs))
+	for _, name := range []string{"WithPointer", "WithSlice", "WithMap", "WithArray", "Mixed"} {
+		if findStruct(pkg.Structs, name) == nil {
+			t.Errorf("missing struct %s", name)
+		}
 	}
 }
 
 func TestScanDir_Nested(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "nested")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -68,16 +135,16 @@ func TestScanDir_Nested(t *testing.T) {
 	}
 
 	pkg := packages[0]
-	structNames := sortedStructNames(pkg.Structs)
-	expected := []string{"Address", "Department", "Employee", "Node"}
-	if !sliceEqual(structNames, expected) {
-		t.Errorf("expected structs %v, got %v", expected, structNames)
+	for _, name := range []string{"Address", "Department", "Employee", "Node"} {
+		if findStruct(pkg.Structs, name) == nil {
+			t.Errorf("missing struct %s", name)
+		}
 	}
 }
 
 func TestScanDir_Empty(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "empty")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -86,10 +153,11 @@ func TestScanDir_Empty(t *testing.T) {
 	}
 
 	pkg := packages[0]
-	if len(pkg.Structs) != 2 {
-		t.Fatalf("expected 2 structs, got %d", len(pkg.Structs))
-	}
-	for _, s := range pkg.Structs {
+	for _, name := range []string{"Empty", "Marker"} {
+		s := findStruct(pkg.Structs, name)
+		if s == nil {
+			t.Fatalf("missing struct %s", name)
+		}
 		if len(s.Fields) != 0 {
 			t.Errorf("struct %s should have 0 fields, got %d", s.Name, len(s.Fields))
 		}
@@ -109,7 +177,7 @@ func TestScanDir_AllPackages(t *testing.T) {
 	}
 	sort.Strings(pkgNames)
 
-	expected := []string{"complex", "crosspkg", "edgecase", "embedded", "empty", "external", "gamecore", "iface", "multifile", "namedtypes", "nested", "selector", "selfref", "simple"}
+	expected := []string{"external", "gamecore", "multifile", "testdata"}
 	if !sliceEqual(pkgNames, expected) {
 		t.Errorf("expected packages %v, got %v", expected, pkgNames)
 	}
@@ -147,8 +215,8 @@ type Bar struct { Y int }
 }
 
 func TestFieldTypeResolution_Pointer(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -189,8 +257,8 @@ func TestFieldTypeResolution_Pointer(t *testing.T) {
 }
 
 func TestFieldTypeResolution_Slice(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -226,8 +294,8 @@ func TestFieldTypeResolution_Slice(t *testing.T) {
 }
 
 func TestFieldTypeResolution_Map(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -268,8 +336,8 @@ func TestFieldTypeResolution_Map(t *testing.T) {
 }
 
 func TestFieldTypeResolution_Array(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -306,8 +374,8 @@ func TestFieldTypeResolution_Array(t *testing.T) {
 }
 
 func TestFieldTypeResolution_BasicFields(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "simple")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -328,8 +396,8 @@ func TestFieldTypeResolution_BasicFields(t *testing.T) {
 }
 
 func TestFieldTypeResolution_NamedStruct(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "nested")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -388,8 +456,8 @@ type Mixed struct {
 }
 
 func TestTypeExprString(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "complex")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -420,24 +488,6 @@ func TestTypeExprString(t *testing.T) {
 	}
 }
 
-func BenchmarkScanDir_Simple(b *testing.B) {
-	_, file, _, _ := runtime.Caller(0)
-	dir := filepath.Join(filepath.Dir(file), "..", "testdata", "simple")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ScanDir(dir)
-	}
-}
-
-func BenchmarkScanDir_Complex(b *testing.B) {
-	_, file, _, _ := runtime.Caller(0)
-	dir := filepath.Join(filepath.Dir(file), "..", "testdata", "complex")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ScanDir(dir)
-	}
-}
-
 func BenchmarkScanDir_All(b *testing.B) {
 	_, file, _, _ := runtime.Caller(0)
 	dir := filepath.Join(filepath.Dir(file), "..", "testdata")
@@ -448,8 +498,8 @@ func BenchmarkScanDir_All(b *testing.B) {
 }
 
 func TestScanDir_Embedded(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "embedded")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -502,8 +552,8 @@ func TestScanDir_Embedded(t *testing.T) {
 }
 
 func TestScanDir_Selector(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "selector")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -549,8 +599,8 @@ func TestScanDir_Selector(t *testing.T) {
 }
 
 func TestScanDir_Edgecase(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "edgecase")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -560,9 +610,9 @@ func TestScanDir_Edgecase(t *testing.T) {
 
 	pkg := packages[0]
 
-	wi := findStruct(pkg.Structs, "WithInterface")
+	wi := findStruct(pkg.Structs, "EdgeInterface")
 	if wi == nil {
-		t.Fatal("WithInterface not found")
+		t.Fatal("EdgeInterface not found")
 	}
 	data := findField(wi.Fields, "Data")
 	if data == nil {
@@ -805,8 +855,8 @@ type Event struct {
 }
 
 func TestScanDir_NamedTypes_HasDeepCopy(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "namedtypes")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -861,8 +911,8 @@ func TestScanDir_NamedTypes_HasDeepCopy(t *testing.T) {
 }
 
 func TestScanDir_NamedTypes_AnonFields(t *testing.T) {
-	dir := filepath.Join(testdataDir(t), "namedtypes")
-	packages, err := ScanDir(dir)
+	dir := testdataDir(t)
+	packages, err := scanFixtureDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
@@ -937,4 +987,18 @@ func writeGoFile(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write %s: %v", path, err)
 	}
+}
+
+// 单包测试只取合并后的主包，跨包依赖仍由扫描器正常解析。
+func scanFixtureDir(dir string) ([]types.PackageInfo, error) {
+	packages, err := ScanDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, pkg := range packages {
+		if pkg.Name == "testdata" {
+			return []types.PackageInfo{pkg}, nil
+		}
+	}
+	return packages, nil
 }

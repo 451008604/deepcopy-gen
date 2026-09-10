@@ -12,12 +12,15 @@ const (
 	TypeStruct                        // named struct value type
 	TypeInterface                     // interface{}
 	TypeChannel                       // chan T
+	TypeFunc                          // func(...) ...
+	TypeParameter                     // 泛型参数，具体值由调用方类型决定
 )
 
 // FieldInfo describes a single field within a struct declaration.
 type FieldInfo struct {
 	Name         string
 	TypeExpr     string
+	Imports      map[string]string
 	Category     TypeCategory
 	IsExported   bool
 	IsEmbedded   bool
@@ -44,6 +47,7 @@ type FieldInfo struct {
 // generator can emit a suitable deepcopy method.
 type StructInfo struct {
 	Name              string
+	TypeParams        []string
 	Package           string
 	Fields            []FieldInfo
 	SourceFile        string

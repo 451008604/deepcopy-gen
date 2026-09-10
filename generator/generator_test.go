@@ -20,28 +20,31 @@ func testdataDir(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "testdata")
 }
 
-func scanPackage(t *testing.T, subDir string) types.PackageInfo {
+func scanPackage(t *testing.T) types.PackageInfo {
 	t.Helper()
-	dir := filepath.Join(testdataDir(t), subDir)
+	dir := testdataDir(t)
 	packages, err := scanner.ScanDir(dir)
 	if err != nil {
 		t.Fatalf("ScanDir failed: %v", err)
 	}
-	if len(packages) != 1 {
-		t.Fatalf("expected 1 package, got %d", len(packages))
+	for _, pkg := range packages {
+		if pkg.Name == "testdata" {
+			return pkg
+		}
 	}
-	return packages[0]
+	t.Fatal("testdata package not found")
+	return types.PackageInfo{}
 }
 
 func TestGenerate_Simple(t *testing.T) {
-	pkg := scanPackage(t, "simple")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
 	assertValidGo(t, code)
-	assertContains(t, code, "package simple")
+	assertContains(t, code, "package testdata")
 	assertContains(t, code, "func (in *Point) DeepCopy() *Point")
 	assertContains(t, code, "func (in *Person) DeepCopy() *Person")
 	assertContains(t, code, "func (in *Config) DeepCopy() *Config")
@@ -53,7 +56,7 @@ func TestGenerate_Simple(t *testing.T) {
 }
 
 func TestGenerate_SimpleNoHelperImport(t *testing.T) {
-	pkg := scanPackage(t, "simple")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -63,7 +66,7 @@ func TestGenerate_SimpleNoHelperImport(t *testing.T) {
 }
 
 func TestGenerate_Complex_PointerFields(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -78,7 +81,7 @@ func TestGenerate_Complex_PointerFields(t *testing.T) {
 }
 
 func TestGenerate_Complex_SliceFields(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -93,7 +96,7 @@ func TestGenerate_Complex_SliceFields(t *testing.T) {
 }
 
 func TestGenerate_Complex_MapFields(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -107,7 +110,7 @@ func TestGenerate_Complex_MapFields(t *testing.T) {
 }
 
 func TestGenerate_Complex_MapWithPointerValues(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -117,7 +120,7 @@ func TestGenerate_Complex_MapWithPointerValues(t *testing.T) {
 }
 
 func TestGenerate_Complex_MapWithSliceValues(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -127,7 +130,7 @@ func TestGenerate_Complex_MapWithSliceValues(t *testing.T) {
 }
 
 func TestGenerate_Nested(t *testing.T) {
-	pkg := scanPackage(t, "nested")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -142,7 +145,7 @@ func TestGenerate_Nested(t *testing.T) {
 }
 
 func TestGenerate_Empty(t *testing.T) {
-	pkg := scanPackage(t, "empty")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -154,7 +157,7 @@ func TestGenerate_Empty(t *testing.T) {
 }
 
 func TestGenerate_NilReceiver(t *testing.T) {
-	pkg := scanPackage(t, "simple")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -199,7 +202,7 @@ func broken( {`
 }
 
 func TestGenerate_SliceOfPointers(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -209,7 +212,7 @@ func TestGenerate_SliceOfPointers(t *testing.T) {
 }
 
 func TestGenerate_SliceOfSlices(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -219,7 +222,7 @@ func TestGenerate_SliceOfSlices(t *testing.T) {
 }
 
 func TestGenerate_MixedStruct(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -234,7 +237,7 @@ func TestGenerate_MixedStruct(t *testing.T) {
 }
 
 func TestGenerate_DepartmentSliceOfStructs(t *testing.T) {
-	pkg := scanPackage(t, "nested")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -245,7 +248,7 @@ func TestGenerate_DepartmentSliceOfStructs(t *testing.T) {
 }
 
 func TestGenerate_NodeSelfReferential(t *testing.T) {
-	pkg := scanPackage(t, "nested")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -256,7 +259,7 @@ func TestGenerate_NodeSelfReferential(t *testing.T) {
 }
 
 func TestGenerate_HelperImportPresent(t *testing.T) {
-	pkg := scanPackage(t, "complex")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -266,7 +269,7 @@ func TestGenerate_HelperImportPresent(t *testing.T) {
 }
 
 func TestGenerate_Embedded(t *testing.T) {
-	pkg := scanPackage(t, "embedded")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -279,7 +282,7 @@ func TestGenerate_Embedded(t *testing.T) {
 }
 
 func TestGenerate_Selector(t *testing.T) {
-	pkg := scanPackage(t, "selector")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -291,7 +294,7 @@ func TestGenerate_Selector(t *testing.T) {
 }
 
 func TestGenerate_InterfaceField(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -303,7 +306,7 @@ func TestGenerate_InterfaceField(t *testing.T) {
 }
 
 func TestGenerate_ChannelField(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -313,7 +316,7 @@ func TestGenerate_ChannelField(t *testing.T) {
 }
 
 func TestGenerate_ArrayOfPointers(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -322,13 +325,11 @@ func TestGenerate_ArrayOfPointers(t *testing.T) {
 	assertValidGo(t, code)
 	assertContains(t, code, "func (in *ArrayOfPointers) DeepCopy() *ArrayOfPointers")
 	assertContains(t, code, "for i := range in.Ptrs")
-	assertContains(t, code, "if in.Ptrs[i] != nil")
-	assertContains(t, code, "out.Ptrs[i] = new(int)")
-	assertContains(t, code, "*out.Ptrs[i] = *in.Ptrs[i]")
+	assertContains(t, code, "out.Ptrs[i] = dc.CopyPtr(v, in.Ptrs[i])")
 }
 
 func TestGenerate_SliceOfMaps(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -340,7 +341,7 @@ func TestGenerate_SliceOfMaps(t *testing.T) {
 }
 
 func TestGenerate_MultiNameFields(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -351,7 +352,7 @@ func TestGenerate_MultiNameFields(t *testing.T) {
 }
 
 func TestGenerate_UnexportedStruct(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -388,7 +389,7 @@ func TestAssemble_WithHelperImport(t *testing.T) {
 }
 
 func TestGenDeepCopy_NoFieldsNeedingCopy(t *testing.T) {
-	pkg := scanPackage(t, "simple")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -401,7 +402,7 @@ func TestGenDeepCopy_NoFieldsNeedingCopy(t *testing.T) {
 }
 
 func TestGenerate_AllEdgecaseStructs(t *testing.T) {
-	pkg := scanPackage(t, "edgecase")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -410,7 +411,7 @@ func TestGenerate_AllEdgecaseStructs(t *testing.T) {
 	assertValidGo(t, code)
 
 	expected := []string{
-		"WithInterface", "WithChannel", "withUnexported",
+		"EdgeInterface", "WithChannel", "withUnexported",
 		"MultiName", "ArrayOfPointers", "SliceOfMaps",
 	}
 	for _, name := range expected {
@@ -419,7 +420,7 @@ func TestGenerate_AllEdgecaseStructs(t *testing.T) {
 }
 
 func TestGenerate_SelfRef_TreeNode(t *testing.T) {
-	pkg := scanPackage(t, "selfref")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -433,7 +434,7 @@ func TestGenerate_SelfRef_TreeNode(t *testing.T) {
 }
 
 func TestGenerate_SelfRef_LinkedNode(t *testing.T) {
-	pkg := scanPackage(t, "selfref")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -444,7 +445,7 @@ func TestGenerate_SelfRef_LinkedNode(t *testing.T) {
 }
 
 func TestGenerate_SelfRef_TreeWithMap(t *testing.T) {
-	pkg := scanPackage(t, "selfref")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -454,7 +455,7 @@ func TestGenerate_SelfRef_TreeWithMap(t *testing.T) {
 }
 
 func TestGenerate_Iface_WithInterface(t *testing.T) {
-	pkg := scanPackage(t, "iface")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -466,7 +467,7 @@ func TestGenerate_Iface_WithInterface(t *testing.T) {
 }
 
 func TestGenerate_Iface_InterfaceSlice(t *testing.T) {
-	pkg := scanPackage(t, "iface")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -477,7 +478,7 @@ func TestGenerate_Iface_InterfaceSlice(t *testing.T) {
 }
 
 func TestGenerate_Iface_InterfaceMap(t *testing.T) {
-	pkg := scanPackage(t, "iface")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -488,7 +489,7 @@ func TestGenerate_Iface_InterfaceMap(t *testing.T) {
 }
 
 func TestGenerate_Iface_NestedInterface(t *testing.T) {
-	pkg := scanPackage(t, "iface")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -499,7 +500,7 @@ func TestGenerate_Iface_NestedInterface(t *testing.T) {
 }
 
 func TestGenerate_InterfaceMapValue(t *testing.T) {
-	pkg := scanPackage(t, "nested")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -510,7 +511,7 @@ func TestGenerate_InterfaceMapValue(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_Player(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -523,7 +524,7 @@ func TestGenerate_CrossPkg_Player(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -535,7 +536,7 @@ func TestGenerate_CrossPkg_PlayerWithExtra(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -548,7 +549,7 @@ func TestGenerate_CrossPkg_MultiExternalEmbed(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -559,7 +560,7 @@ func TestGenerate_CrossPkg_SliceOfExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -570,7 +571,7 @@ func TestGenerate_CrossPkg_SliceOfExternalPtr(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_MapOfExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -581,7 +582,7 @@ func TestGenerate_CrossPkg_MapOfExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_ExternalWithPointerToExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -593,7 +594,7 @@ func TestGenerate_CrossPkg_ExternalWithPointerToExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -605,7 +606,7 @@ func TestGenerate_CrossPkg_ExternalWithSliceOfExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_ExternalWithMapOfExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -617,7 +618,7 @@ func TestGenerate_CrossPkg_ExternalWithMapOfExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_NestedExternal(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -628,7 +629,7 @@ func TestGenerate_CrossPkg_NestedExternal(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -640,7 +641,7 @@ func TestGenerate_CrossPkg_ExternalWithLocalSlice(t *testing.T) {
 }
 
 func TestGenerate_CrossPkg_AllStructs(t *testing.T) {
-	pkg := scanPackage(t, "crosspkg")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -661,7 +662,7 @@ func TestGenerate_CrossPkg_AllStructs(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_PtrFields(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -675,7 +676,7 @@ func TestGenerate_NamedTypes_PtrFields(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_ValueFields(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -688,21 +689,21 @@ func TestGenerate_NamedTypes_ValueFields(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_PtrToComposite(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 	// Pointer-to-slice and pointer-to-map emit inline element-wise copies.
 	assertContains(t, code, "out.Basic = new([]string)")
-	assertContains(t, code, "*out.Basic = dc.CopySlice(*in.Basic)")
-	assertContains(t, code, "(*out.Items)[i] = dc.CopyPtr(v, (*in.Items)[i])")
+	assertContains(t, code, "(*out.Basic) = dc.CopySlice((*in.Basic))")
+	assertContains(t, code, "(*out.Items) = dc.CopySlicePtr(v, (*in.Items))")
 	assertContains(t, code, "out.M = new(map[string]int)")
-	assertContains(t, code, "(*out.MI)[k] = dc.CopyPtr(v, val)")
+	assertContains(t, code, "(*out.MI) = dc.CopyMapPtr(v, (*in.MI))")
 }
 
 func TestGenerate_NamedTypes_MapOfStruct(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -715,7 +716,7 @@ func TestGenerate_NamedTypes_MapOfStruct(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_AnonStruct(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -727,7 +728,7 @@ func TestGenerate_NamedTypes_AnonStruct(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_StructValueFields(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -739,7 +740,7 @@ func TestGenerate_NamedTypes_StructValueFields(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_MethodsForNamedComposites(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -753,7 +754,7 @@ func TestGenerate_NamedTypes_MethodsForNamedComposites(t *testing.T) {
 }
 
 func TestGenerate_NamedTypes_AnonStructMapValue(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -762,14 +763,14 @@ func TestGenerate_NamedTypes_AnonStructMapValue(t *testing.T) {
 	assertContains(t, code, "out.Members = make(map[int32]struct{}, len(in.Members))")
 	assertContains(t, code, "out.Members[k] = val")
 	// Non-empty anonymous struct map value: temp var + field-wise deep copy.
-	assertContains(t, code, "out.Tagged = make(map[string]struct{N *int}, len(in.Tagged))")
+	assertContains(t, code, "out.Tagged = make(map[string]struct{ N *int }, len(in.Tagged))")
 	assertContains(t, code, "cp := val")
 	assertContains(t, code, "cp.N = dc.CopyPtr(v, val.N)")
 	assertContains(t, code, "out.Tagged[k] = cp")
 }
 
 func TestGenerate_NamedTypes_BasicAliasAndEmptyStructSlices(t *testing.T) {
-	pkg := scanPackage(t, "namedtypes")
+	pkg := scanPackage(t)
 	code, err := Generate(pkg)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)

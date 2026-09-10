@@ -1,14 +1,21 @@
 package scanner
 
 import (
-	"github.com/451008604/deepcopy-gen/types"
+	"bytes"
+	"fmt"
 	"go/ast"
+	"go/build"
+	"go/format"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
-	"unicode"
+
+	"github.com/451008604/deepcopy-gen/types"
 )
 
 // ScanDir walks the given directory recursively, parses all .go files,
@@ -27,15 +34,25 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 	// field resolution can tell named basic aliases / anonymous composites
 	// apart from named struct/slice/map/array types that carry a deepcopy
 	// method.
-	typeDefs := make(map[string]map[string]ast.Expr)
+	typeDefs := make(map[string]map[string]*ast.TypeSpec)
 	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
+			if path != dir && (strings.HasPrefix(info.Name(), ".") || info.Name() == "vendor") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".dc.go") {
+			return nil
+		}
+		match, matchErr := build.Default.MatchFile(filepath.Dir(path), info.Name())
+		if matchErr != nil {
+			return matchErr
+		}
+		if !match {
 			return nil
 		}
 		fset := token.NewFileSet()
@@ -47,9 +64,12 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 		if _, ok := packages[pkgDir]; !ok {
 			packages[pkgDir] = &types.PackageInfo{Name: f.Name.Name, Dir: pkgDir}
 		}
+		if packages[pkgDir].Name != f.Name.Name {
+			return fmt.Errorf("%s: conflicting packages %s and %s", path, packages[pkgDir].Name, f.Name.Name)
+		}
 		td := typeDefs[pkgDir]
 		if td == nil {
-			td = make(map[string]ast.Expr)
+			td = make(map[string]*ast.TypeSpec)
 			typeDefs[pkgDir] = td
 		}
 		for _, decl := range f.Decls {
@@ -59,7 +79,7 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 			}
 			for _, spec := range genDecl.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					td[typeSpec.Name.Name] = typeSpec.Type
+					td[typeSpec.Name.Name] = typeSpec
 				}
 			}
 		}
@@ -70,86 +90,196 @@ func ScanDir(dir string) ([]types.PackageInfo, error) {
 		return nil, walkErr
 	}
 
-	// Pass 2: extract structs (and named composite types), resolving field
-	// types against the package type table.
+	// 统一每个包的导入名称，防止不同文件的同名别名或 dc 别名冲突。
+	packageImports := make(map[string]map[string]string)
+	for _, cf := range files {
+		imports := packageImports[cf.pkgDir]
+		if imports == nil {
+			imports = make(map[string]string)
+			packageImports[cf.pkgDir] = imports
+		}
+		rename := make(map[string]string)
+		for _, imp := range cf.file.Imports {
+			path, _ := strconv.Unquote(imp.Path.Value)
+			local := filepath.Base(path)
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			if local == "_" {
+				continue
+			}
+			if local == "." || path == "C" {
+				return nil, fmt.Errorf("%s: dot imports and cgo types are not supported", cf.path)
+			}
+			canonical := ""
+			for name, existing := range imports {
+				if existing == path {
+					canonical = name
+					break
+				}
+			}
+			if canonical == "" {
+				canonical = local
+				for n := 1; imports[canonical] != "" || typeDefs[cf.pkgDir][canonical] != nil || slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached"}, canonical); n++ {
+					canonical = fmt.Sprintf("%s%d", local, n)
+				}
+				imports[canonical] = path
+			}
+			rename[local] = canonical
+		}
+		for _, decl := range cf.file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			// 类型与数组长度常量中的包限定名也必须保持一致。
+			ast.Inspect(gd, func(node ast.Node) bool {
+				if sel, ok := node.(*ast.SelectorExpr); ok {
+					if ident, ok := sel.X.(*ast.Ident); ok && rename[ident.Name] != "" {
+						ident.Name = rename[ident.Name]
+					}
+				}
+				return true
+			})
+		}
+	}
 	for _, cf := range files {
 		pkg := packages[cf.pkgDir]
 		pkg.GoFiles = append(pkg.GoFiles, cf.path)
-		extracted := extractStructs(cf.file, cf.path, typeDefs[cf.pkgDir])
-		detectSelfReferential(extracted)
+		extracted, err := extractStructs(cf.file, cf.path, typeDefs[cf.pkgDir], packageImports[cf.pkgDir])
+		if err != nil {
+			return nil, err
+		}
 		pkg.Structs = append(pkg.Structs, extracted...)
+	}
+	for _, pkg := range packages {
+		detectSelfReferential(pkg.Structs)
 	}
 
 	result := make([]types.PackageInfo, 0, len(packages))
 	for _, pkg := range packages {
 		result = append(result, *pkg)
 	}
+	slices.SortFunc(result, func(a, b types.PackageInfo) int { return strings.Compare(a.Dir, b.Dir) })
 	return result, nil
 }
 
-func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]ast.Expr) []types.StructInfo {
+func extractStructs(f *ast.File, sourceFile string, typeDefs map[string]*ast.TypeSpec, importMap map[string]string) ([]types.StructInfo, error) {
 	var structs []types.StructInfo
-
-	importMap := make(map[string]string)
-	for _, imp := range f.Imports {
-		if imp.Name != nil {
-			importMap[imp.Name.Name] = strings.Trim(imp.Path.Value, "\"")
-		} else {
-			parts := strings.Split(strings.Trim(imp.Path.Value, "\""), "/")
-			if len(parts) > 0 {
-				importMap[parts[len(parts)-1]] = strings.Trim(imp.Path.Value, "\"")
-			}
-		}
-	}
-
 	for _, decl := range f.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.TYPE {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
 			continue
 		}
-		for _, spec := range genDecl.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok {
+		for _, spec := range gd.Specs {
+			ts := spec.(*ast.TypeSpec)
+			// 别名复用原类型的方法；匿名别名只能在字段处内联复制。
+			if ts.Assign.IsValid() && ts.TypeParams != nil {
+				return nil, fmt.Errorf("%s: generic aliases are outside the Go 1.21 target", sourceFile)
+			}
+			if ts.Assign.IsValid() || ts.Name.Name == "_" {
 				continue
 			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				// Collect named composite types (slice/array/map) so the
-				// generator emits a deepcopy method for them; fields
-				// referencing the named type can then call `.deepcopy(v)`.
-				// Named basic aliases and pointer/chan/interface aliases are
-				// skipped (no method; shallow copy is correct or N/A).
-				switch typeSpec.Type.(type) {
-				case *ast.ArrayType, *ast.MapType:
-					u := buildFieldInfo("", typeSpec.Type, importMap, typeDefs)
-					structs = append(structs, types.StructInfo{
-						Name:       typeSpec.Name.Name,
-						Package:    f.Name.Name,
-						SourceFile: sourceFile,
-						Underlying: &u,
-					})
+			defs := maps.Clone(typeDefs)
+			var params []string
+			renameParams := make(map[string]ast.Expr)
+			if ts.TypeParams != nil {
+				for _, field := range ts.TypeParams.List {
+					for _, name := range field.Names {
+						param := name.Name
+						if slices.Contains([]string{"dc", "in", "out", "v", "i", "k", "val", "cp", "cached", "_"}, param) || importMap[param] != "" {
+							param = fmt.Sprintf("DCType%d", len(params))
+							renameParams[name.Name] = ast.NewIdent(param)
+						}
+						params = append(params, param)
+						defs[param] = &ast.TypeSpec{Name: ast.NewIdent(param)}
+					}
 				}
+			}
+			sourceType := ts.Type
+			if len(renameParams) > 0 {
+				sourceType = substituteType(sourceType, renameParams)
+			}
+			expr, err := underlyingType(sourceType, defs, make(map[string]bool))
+			if err != nil {
+				return nil, fmt.Errorf("%s: %s: %w", sourceFile, ts.Name.Name, err)
+			}
+			si := types.StructInfo{Name: ts.Name.Name, TypeParams: params, Package: f.Name.Name, SourceFile: sourceFile}
+			switch t := expr.(type) {
+			case *ast.StructType:
+				for _, field := range t.Fields.List {
+					si.Fields = append(si.Fields, parseField(field, importMap, defs)...)
+				}
+			case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr:
+				return nil, fmt.Errorf("%s: %s: cannot resolve underlying type %s; use an alias or a local structural definition", sourceFile, ts.Name.Name, typeExprString(expr))
+			case *ast.ArrayType, *ast.MapType:
+				u := buildFieldInfo("", expr, importMap, defs)
+				si.Underlying = &u
+			default:
 				continue
 			}
-
-			si := types.StructInfo{
-				Name:       typeSpec.Name.Name,
-				Package:    f.Name.Name,
-				SourceFile: sourceFile,
-			}
-
-			if structType.Fields != nil {
-				for _, field := range structType.Fields.List {
-					fi := parseField(field, importMap, typeDefs)
-					si.Fields = append(si.Fields, fi...)
-				}
-			}
-
 			structs = append(structs, si)
 		}
 	}
+	return structs, nil
+}
 
-	return structs
+// 只展开声明外层，字段中的递归引用仍通过生成的方法处理。
+func underlyingType(expr ast.Expr, defs map[string]*ast.TypeSpec, seen map[string]bool) (ast.Expr, error) {
+	switch t := expr.(type) {
+	case *ast.ParenExpr:
+		return underlyingType(t.X, defs, seen)
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		var base ast.Expr
+		var args []ast.Expr
+		if idx, ok := expr.(*ast.IndexExpr); ok {
+			base = idx.X
+			args = []ast.Expr{idx.Index}
+		} else {
+			idx := expr.(*ast.IndexListExpr)
+			base = idx.X
+			args = idx.Indices
+		}
+		ident, ok := base.(*ast.Ident)
+		if !ok {
+			return expr, nil
+		}
+		def := defs[ident.Name]
+		if def == nil || def.TypeParams == nil {
+			return expr, nil
+		}
+		if seen[ident.Name] {
+			return nil, fmt.Errorf("cyclic generic definition involving %s", ident.Name)
+		}
+		bindings := make(map[string]ast.Expr)
+		index := 0
+		for _, field := range def.TypeParams.List {
+			for _, param := range field.Names {
+				if index >= len(args) {
+					return nil, fmt.Errorf("missing type arguments for %s", ident.Name)
+				}
+				bindings[param.Name] = args[index]
+				index++
+			}
+		}
+		if index != len(args) {
+			return nil, fmt.Errorf("too many type arguments for %s", ident.Name)
+		}
+		seen[ident.Name] = true
+		defer delete(seen, ident.Name)
+		return underlyingType(substituteType(def.Type, bindings), defs, seen)
+
+	case *ast.Ident:
+		if def := defs[t.Name]; def != nil && def.Type != nil {
+			if seen[t.Name] {
+				return nil, fmt.Errorf("cyclic type definition involving %s", t.Name)
+			}
+			seen[t.Name] = true
+			defer delete(seen, t.Name)
+			return underlyingType(def.Type, defs, seen)
+		}
+	}
+	return expr, nil
 }
 
 func detectSelfReferential(structs []types.StructInfo) {
@@ -185,7 +315,11 @@ func dfsCheckCycle(structs []types.StructInfo, currentIdx, startIdx int, nameToI
 	visited[currentName] = true
 	defer delete(visited, currentName)
 
-	for _, f := range structs[currentIdx].Fields {
+	fields := structs[currentIdx].Fields
+	if u := structs[currentIdx].Underlying; u != nil {
+		fields = append(slices.Clone(fields), *u)
+	}
+	for _, f := range fields {
 		for _, name := range collectPointerTargets(f) {
 			if idx, ok := nameToIdx[name]; ok {
 				if dfsCheckCycle(structs, idx, startIdx, nameToIdx, visited, true) {
@@ -211,9 +345,13 @@ func collectPointerTargets(f types.FieldInfo) []string {
 				}
 				walk(*fi.ElemType)
 			}
-		case types.TypeSlice:
+		case types.TypeSlice, types.TypeArray:
 			if fi.ElemType != nil {
 				walk(*fi.ElemType)
+			}
+		case types.TypeStruct:
+			for _, field := range fi.AnonFields {
+				walk(field)
 			}
 		case types.TypeMap:
 			if fi.MapValueType != nil {
@@ -225,7 +363,7 @@ func collectPointerTargets(f types.FieldInfo) []string {
 	return result
 }
 
-func parseField(field *ast.Field, importMap map[string]string, typeDefs map[string]ast.Expr) []types.FieldInfo {
+func parseField(field *ast.Field, importMap map[string]string, typeDefs map[string]*ast.TypeSpec) []types.FieldInfo {
 	if len(field.Names) == 0 {
 		name := embeddedFieldName(field.Type)
 		fi := buildFieldInfo(name, field.Type, importMap, typeDefs)
@@ -236,23 +374,27 @@ func parseField(field *ast.Field, importMap map[string]string, typeDefs map[stri
 
 	var fields []types.FieldInfo
 	for _, name := range field.Names {
+		if name.Name == "_" {
+			continue
+		}
 		fi := buildFieldInfo(name.Name, field.Type, importMap, typeDefs)
-		fi.IsExported = len(name.Name) > 0 && unicode.IsUpper(rune(name.Name[0]))
+		fi.IsExported = len(name.Name) > 0 && ast.IsExported(name.Name)
 		fields = append(fields, fi)
 	}
 	return fields
 }
 
-func buildFieldInfo(name string, expr ast.Expr, importMap map[string]string, typeDefs map[string]ast.Expr) types.FieldInfo {
+func buildFieldInfo(name string, expr ast.Expr, importMap map[string]string, typeDefs map[string]*ast.TypeSpec) types.FieldInfo {
 	fi := types.FieldInfo{
 		Name:     name,
-		TypeExpr: typeExprString(expr),
+		TypeExpr: typeExprString(expr), Imports: importMap,
 	}
 	resolveType(&fi, expr, importMap, typeDefs)
 	return fi
 }
 
-func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string, typeDefs map[string]ast.Expr) {
+func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string, typeDefs map[string]*ast.TypeSpec) {
+	fi.Imports = importMap
 	if fi.TypeExpr == "" {
 		fi.TypeExpr = typeExprString(expr)
 	}
@@ -270,11 +412,8 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 		} else {
 			fi.Category = types.TypeArray
 			if lit, ok := t.Len.(*ast.BasicLit); ok && lit.Kind == token.INT {
-				n := 0
-				for _, c := range lit.Value {
-					n = n*10 + int(c-'0')
-				}
-				fi.ArrayLen = n
+				n, _ := strconv.ParseInt(strings.ReplaceAll(lit.Value, "_", ""), 0, 64)
+				fi.ArrayLen = int(n)
 			}
 		}
 		fi.ElemType = &types.FieldInfo{TypeExpr: typeExprString(t.Elt)}
@@ -305,16 +444,48 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 	case *ast.ChanType:
 		fi.Category = types.TypeChannel
 
+	case *ast.ParenExpr:
+		resolveType(fi, t.X, importMap, typeDefs)
+	case *ast.FuncType:
+		fi.Category = types.TypeFunc
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		var base ast.Expr
+		if idx, ok := expr.(*ast.IndexExpr); ok {
+			base = idx.X
+		} else {
+			base = expr.(*ast.IndexListExpr).X
+		}
+		if ident, ok := base.(*ast.Ident); ok && !namedTypeHasDeepCopy(ident.Name, typeDefs) {
+			underlying, err := underlyingType(expr, typeDefs, make(map[string]bool))
+			if err == nil && underlying != expr {
+				resolveType(fi, underlying, importMap, typeDefs)
+				return
+			}
+		}
+		resolveType(fi, base, importMap, typeDefs)
 	case *ast.Ident:
-		if isBuiltinType(t.Name) {
+		if def := typeDefs[t.Name]; def != nil {
+			if def.Type == nil {
+				fi.Category = types.TypeParameter
+				return
+			}
+			if !def.Assign.IsValid() && namedTypeHasDeepCopy(t.Name, typeDefs) {
+				fi.Category = types.TypeStruct
+				fi.TypeName = t.Name
+				fi.HasDeepCopy = true
+				return
+			}
+			// 不可声明方法的命名指针及别名按底层形状复制。
+			remaining := maps.Clone(typeDefs)
+			delete(remaining, t.Name)
+			resolveType(fi, def.Type, importMap, remaining)
+		} else if t.Name == "any" || t.Name == "error" {
+			fi.Category = types.TypeInterface
+		} else if isBuiltinType(t.Name) {
 			fi.Category = types.TypeBasic
 		} else {
-			// Same-package named type. Keep Category=TypeStruct so the
-			// generator dispatches uniformly; record whether the named type
-			// has a generated deepcopy method.
 			fi.Category = types.TypeStruct
 			fi.TypeName = t.Name
-			fi.HasDeepCopy = namedTypeHasDeepCopy(t.Name, typeDefs)
 		}
 
 	case *ast.SelectorExpr:
@@ -335,28 +506,21 @@ func resolveType(fi *types.FieldInfo, expr ast.Expr, importMap map[string]string
 	}
 }
 
-// namedTypeHasDeepCopy reports whether a same-package named type has a
-// generated deepcopy method. Structs and named slice/array/map types get
-// methods; named basic aliases (and aliases to pointer/chan/interface) do
-// not. Aliases to other named types are resolved transitively.
-func namedTypeHasDeepCopy(name string, typeDefs map[string]ast.Expr) bool {
-	expr, ok := typeDefs[name]
-	if !ok {
-		// Not a package-level type decl; assume a same-package struct, which
-		// always gets a method. Safe default.
-		return true
-	}
-	switch e := expr.(type) {
-	case *ast.StructType, *ast.ArrayType, *ast.MapType:
-		return true
-	case *ast.Ident:
-		if isBuiltinType(e.Name) {
-			return false
-		}
-		return namedTypeHasDeepCopy(e.Name, typeDefs)
-	default:
+// 只有可声明方法的本地结构体、切片、数组和 map 定义才生成复制方法。
+func namedTypeHasDeepCopy(name string, typeDefs map[string]*ast.TypeSpec) bool {
+	def := typeDefs[name]
+	if def == nil || def.Type == nil || def.Assign.IsValid() {
 		return false
 	}
+	expr, err := underlyingType(def.Type, typeDefs, make(map[string]bool))
+	if err != nil {
+		return false
+	}
+	switch expr.(type) {
+	case *ast.StructType, *ast.ArrayType, *ast.MapType:
+		return true
+	}
+	return false
 }
 
 func isBuiltinType(name string) bool {
@@ -372,62 +536,10 @@ func isBuiltinType(name string) bool {
 }
 
 func typeExprString(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return "*" + typeExprString(t.X)
-	case *ast.ArrayType:
-		if t.Len == nil {
-			return "[]" + typeExprString(t.Elt)
-		}
-		return "[" + typeExprString(t.Len) + "]" + typeExprString(t.Elt)
-	case *ast.MapType:
-		return "map[" + typeExprString(t.Key) + "]" + typeExprString(t.Value)
-	case *ast.SelectorExpr:
-		return typeExprString(t.X) + "." + t.Sel.Name
-	case *ast.StructType:
-		return structTypeString(t)
-	case *ast.InterfaceType:
-		return "interface{}"
-	case *ast.BasicLit:
-		return t.Value
-	case *ast.Ellipsis:
-		return "..." + typeExprString(t.Elt)
-	case *ast.ChanType:
-		return "chan " + typeExprString(t.Value)
-	default:
-		return "unknown"
+	var b bytes.Buffer
+	if err := format.Node(&b, token.NewFileSet(), expr); err != nil {
+		return ""
 	}
-}
-
-// structTypeString renders an anonymous struct type as a literal so it can be
-// used in generated make/new expressions, e.g. struct{} or struct{ N *int }.
-func structTypeString(t *ast.StructType) string {
-	if t.Fields == nil || len(t.Fields.List) == 0 {
-		return "struct{}"
-	}
-	var b strings.Builder
-	b.WriteString("struct{")
-	for i, field := range t.Fields.List {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		ft := typeExprString(field.Type)
-		if len(field.Names) == 0 {
-			// embedded field
-			b.WriteString(ft)
-		} else {
-			for j, n := range field.Names {
-				if j > 0 {
-					b.WriteString(", ")
-				}
-				b.WriteString(n.Name)
-			}
-			b.WriteString(" " + ft)
-		}
-	}
-	b.WriteString("}")
 	return b.String()
 }
 
@@ -437,6 +549,12 @@ func embeddedFieldName(expr ast.Expr) string {
 		return t.Name
 	case *ast.StarExpr:
 		return embeddedFieldName(t.X)
+	case *ast.IndexExpr:
+		return embeddedFieldName(t.X)
+	case *ast.IndexListExpr:
+		return embeddedFieldName(t.X)
+	case *ast.ParenExpr:
+		return embeddedFieldName(t.X)
 	case *ast.SelectorExpr:
 		return t.Sel.Name
 	default:
@@ -445,14 +563,66 @@ func embeddedFieldName(expr ast.Expr) string {
 }
 
 func isExportedTypeExpr(expr ast.Expr) bool {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return len(t.Name) > 0 && unicode.IsUpper(rune(t.Name[0]))
-	case *ast.StarExpr:
-		return isExportedTypeExpr(t.X)
-	case *ast.SelectorExpr:
-		return len(t.Sel.Name) > 0 && unicode.IsUpper(rune(t.Sel.Name[0]))
-	default:
-		return false
+	return ast.IsExported(embeddedFieldName(expr))
+}
+
+// 替换类型位置的参数，不改写同名字段、方法或导入限定名。
+func substituteType(expr ast.Expr, args map[string]ast.Expr) ast.Expr {
+	cloned, err := parser.ParseExpr(typeExprString(expr))
+	if err != nil {
+		return expr
 	}
+	var replace func(ast.Expr) ast.Expr
+	var fields func(*ast.FieldList)
+	fields = func(list *ast.FieldList) {
+		if list == nil {
+			return
+		}
+		for _, field := range list.List {
+			field.Type = replace(field.Type)
+		}
+	}
+	replace = func(expr ast.Expr) ast.Expr {
+		switch t := expr.(type) {
+		case *ast.Ident:
+			if arg := args[t.Name]; arg != nil {
+				return arg
+			}
+		case *ast.StarExpr:
+			t.X = replace(t.X)
+		case *ast.ParenExpr:
+			t.X = replace(t.X)
+		case *ast.ArrayType:
+			t.Elt = replace(t.Elt)
+		case *ast.MapType:
+			t.Key = replace(t.Key)
+			t.Value = replace(t.Value)
+		case *ast.ChanType:
+			t.Value = replace(t.Value)
+		case *ast.StructType:
+			fields(t.Fields)
+		case *ast.InterfaceType:
+			fields(t.Methods)
+		case *ast.FuncType:
+			fields(t.Params)
+			fields(t.Results)
+		case *ast.Ellipsis:
+			t.Elt = replace(t.Elt)
+		case *ast.IndexExpr:
+			t.X = replace(t.X)
+			t.Index = replace(t.Index)
+		case *ast.IndexListExpr:
+			t.X = replace(t.X)
+			for i, arg := range t.Indices {
+				t.Indices[i] = replace(arg)
+			}
+		case *ast.UnaryExpr:
+			t.X = replace(t.X)
+		case *ast.BinaryExpr:
+			t.X = replace(t.X)
+			t.Y = replace(t.Y)
+		}
+		return expr
+	}
+	return replace(cloned)
 }

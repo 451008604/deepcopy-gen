@@ -1,5 +1,7 @@
 package deepcopy
 
+import "slices"
+
 type Visited = map[any]any
 
 func NewVisited() Visited {
@@ -15,6 +17,9 @@ func CopyPtr[T any](v Visited, p *T) *T {
 		return out.(*T)
 	}
 
+	if copier, ok := any(p).(interface{ DeepCopyWithVisited(Visited) *T }); ok {
+		return copier.DeepCopyWithVisited(v)
+	}
 	if copier, ok := any(p).(interface{ deepcopy(Visited) *T }); ok {
 		return copier.deepcopy(v)
 	}
@@ -29,6 +34,7 @@ func CopyPtr[T any](v Visited, p *T) *T {
 	}
 
 	out := new(T)
+	v[p] = out
 	*out = *p
 	return out
 }
@@ -37,7 +43,11 @@ func CopyDoublePtr[T any](v Visited, p **T) **T {
 	if p == nil {
 		return nil
 	}
+	if out, ok := v[p]; ok {
+		return out.(**T)
+	}
 	out := new(*T)
+	v[p] = out
 	if *p != nil {
 		*out = CopyPtr(v, *p)
 	}
@@ -45,12 +55,7 @@ func CopyDoublePtr[T any](v Visited, p **T) **T {
 }
 
 func CopySlice[T any](s []T) []T {
-	if s == nil {
-		return nil
-	}
-	out := make([]T, len(s))
-	copy(out, s)
-	return out
+	return slices.Clone(s)
 }
 
 func CopySlicePtr[T any](v Visited, s []*T) []*T {
@@ -75,11 +80,7 @@ func CopySliceSlice[T any](v Visited, s [][]T) [][]T {
 		if elem != nil {
 			out[i] = make([]T, len(elem))
 			for j, val := range elem {
-				if copier, ok := any(val).(interface{ deepcopy(Visited) *T }); ok {
-					out[i][j] = *copier.deepcopy(v)
-				} else {
-					out[i][j] = val
-				}
+				out[i][j] = CopyValue(v, val)
 			}
 		}
 	}
@@ -95,11 +96,7 @@ func CopySliceMap[K comparable, V any](v Visited, s []map[K]V) []map[K]V {
 		if m != nil {
 			out[i] = make(map[K]V, len(m))
 			for k, val := range m {
-				if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
-					out[i][k] = *copier.deepcopy(v)
-				} else {
-					out[i][k] = val
-				}
+				out[i][k] = CopyValue(v, val)
 			}
 		}
 	}
@@ -112,11 +109,7 @@ func CopyMap[K comparable, V any](v Visited, m map[K]V) map[K]V {
 	}
 	out := make(map[K]V, len(m))
 	for k, val := range m {
-		if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
-			out[k] = *copier.deepcopy(v)
-		} else {
-			out[k] = val
-		}
+		out[k] = CopyValue(v, val)
 	}
 	return out
 }
@@ -127,9 +120,7 @@ func CopyMapPtr[K comparable, V any](v Visited, m map[K]*V) map[K]*V {
 	}
 	out := make(map[K]*V, len(m))
 	for k, p := range m {
-		if p != nil {
-			out[k] = CopyPtr(v, p)
-		}
+		out[k] = CopyPtr(v, p)
 	}
 	return out
 }
@@ -143,15 +134,31 @@ func CopyMapSlice[K comparable, V any](v Visited, m map[K][]V) map[K][]V {
 		if s != nil {
 			out[k] = make([]V, len(s))
 			for i, val := range s {
-				if copier, ok := any(val).(interface{ deepcopy(Visited) *V }); ok {
-					out[k][i] = *copier.deepcopy(v)
-				} else {
-					out[k][i] = val
-				}
+				out[k][i] = CopyValue(v, val)
 			}
 		} else {
 			out[k] = nil
 		}
 	}
 	return out
+}
+
+// 保留泛型参数的具体值类型；有显式复制方法时使用该方法。
+func CopyValue[T any](v Visited, value T) T {
+	if copier, ok := any(value).(interface{ DeepCopyWithVisited(Visited) T }); ok {
+		return copier.DeepCopyWithVisited(v)
+	}
+	if copier, ok := any(value).(interface{ DeepCopy() T }); ok {
+		return copier.DeepCopy()
+	}
+	if _, ok := any(&value).(interface{ DeepCopyWithVisited(Visited) *T }); ok {
+		return *CopyPtr(v, &value)
+	}
+	if _, ok := any(&value).(interface{ DeepCopy() *T }); ok {
+		return *CopyPtr(v, &value)
+	}
+	if _, ok := any(&value).(interface{ deepcopy(Visited) *T }); ok {
+		return *CopyPtr(v, &value)
+	}
+	return value
 }
