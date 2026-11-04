@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -99,8 +101,6 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("%s is not a directory", dir)
 	}
 
-	existingFiles := collectExistingDCFiles(dir)
-
 	packages, err := scanner.ScanDir(dir)
 	if err != nil {
 		return fmt.Errorf("scanning: %w", err)
@@ -124,43 +124,110 @@ func run(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, code)
 		} else {
 			outPath := generator.OutputPath(pkg.Dir)
-			if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("removing old %s: %w", outPath, err)
-			}
-			if err := os.WriteFile(outPath, []byte(code), 0644); err != nil {
+			if err := writeGeneratedFile(outPath, func(w io.Writer) error {
+				_, err := io.WriteString(w, code)
+				return err
+			}); err != nil {
 				return fmt.Errorf("writing %s: %w", outPath, err)
 			}
 			generatedFiles[outPath] = true
 		}
 	}
 
-	if !*dryRun {
-		for _, oldFile := range existingFiles {
-			if !generatedFiles[oldFile] {
-				if err := os.Remove(oldFile); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("removing stale %s: %w", oldFile, err)
-				}
-			}
-		}
-	}
-
 	if *dryRun {
 		fmt.Fprintf(stderr, "processed %d packages, %d structs\n", len(packages), totalStructs)
+		return nil
 	}
 
-	return nil
+	// A failed generation can leave earlier packages updated. Only clean up
+	// stale files once all packages have been written successfully.
+	return removeStaleGeneratedFiles(dir, generatedFiles)
 }
 
-func collectExistingDCFiles(dir string) []string {
-	var files []string
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+func writeGeneratedFile(path string, write func(io.Writer) error) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("output path is not a regular file")
+		}
+		owned, err := hasGeneratedHeader(path)
 		if err != nil {
+			return err
+		}
+		if !owned {
+			return errors.New("output file is missing the deepcopy-gen header")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	// Open exclusively with the same umask-sensitive mode as the old writer.
+	var suffix [16]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return err
+	}
+	tempPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".deepcopy-gen-%x.tmp", suffix))
+	f, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempPath)
+
+	err = write(f)
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(tempPath, path)
+}
+
+func hasGeneratedHeader(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	line, err := bufio.NewReader(f).ReadSlice('\n')
+	if errors.Is(err, io.EOF) || errors.Is(err, bufio.ErrBufferFull) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimRight(string(line), "\r\n") == generator.GeneratedHeader, nil
+}
+
+func removeStaleGeneratedFiles(dir string, generatedFiles map[string]bool) error {
+	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			// Match the scanner's directory exclusions.
+			if path != dir && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "vendor") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		if !info.IsDir() && strings.HasSuffix(path, ".dc.go") {
-			files = append(files, path)
+		if path != generator.OutputPath(filepath.Dir(path)) || generatedFiles[path] || !entry.Type().IsRegular() {
+			return nil
+		}
+		owned, err := hasGeneratedHeader(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("checking stale %s: %w", path, err)
+		}
+		if owned {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("removing stale %s: %w", path, err)
+			}
 		}
 		return nil
 	})
-	return files
 }
